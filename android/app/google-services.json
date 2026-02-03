@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "719127695243",
+    "project_id": "meal-sharing-a45d6",
+    "storage_bucket": "meal-sharing-a45d6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:719127695243:android:9698afee4301160a73e98e",
+        "android_client_info": {
+          "package_name": "com.naisu.meal_sharing"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "719127695243-4j9g3g1g7p15qoo70j9c2q1m5vcpm02a.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.naisu.meal_sharing",
+            "certificate_hash": "9808bd134699c629924db6b18c3cb84c9e9a265e"
+          }
+        },
+        {
+          "client_id": "719127695243-aln1vcathefe3uc7gr68ukhog3p58cf7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAzVoJfS4BawkKpBmdYEhYRLZMD45Z9Wh4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "719127695243-aln1vcathefe3uc7gr68ukhog3p58cf7.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "719127695243-2tjhare01gr6d4a9e4jo2gqb2470jfa4.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.mealsharing.mealSharing"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
