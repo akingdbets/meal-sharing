@@ -42,4 +42,13 @@ app.*.map.json
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile
+/android/app/profile
 /android/app/release
+
+# -----------------------------------------
+# [추가됨] Firebase & 보안 관련 설정 (깃허브 업로드 제외)
+# -----------------------------------------
+ios/Runner/GoogleService-Info.plist
+android/app/google-services.json
+lib/firebase_options.dart
+macos/Runner/GoogleService-Info.plist

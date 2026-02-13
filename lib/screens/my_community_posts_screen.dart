@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:rxdart/rxdart.dart';
 import '../models/community_post_model.dart';
 import '../repositories/community_repository.dart';
 import '../services/auth_service.dart';
@@ -46,11 +47,8 @@ class MyCommunityPostsScreen extends StatelessWidget {
         foregroundColor: Colors.black87,
       ),
       body: StreamBuilder<List<CommunityPostModel>>(
-        stream: repo.streamPostsByUserId(user.uid),
+        stream: repo.streamPostsByUserId(user.uid).startWith(<CommunityPostModel>[]),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
           if (snapshot.hasError) {
             return Center(
               child: Text(
@@ -68,7 +66,7 @@ class MyCommunityPostsScreen extends StatelessWidget {
                   Icon(Icons.edit_note, size: 64, color: Colors.grey[400]),
                   const SizedBox(height: 16),
                   Text(
-                    '작성한 글이 없어요',
+                    '게시물이 없습니다',
                     style: theme.textTheme.titleMedium?.copyWith(
                       color: Colors.grey[600],
                       fontWeight: FontWeight.w600,

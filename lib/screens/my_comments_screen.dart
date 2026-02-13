@@ -295,7 +295,22 @@ class _MyCommentsScreenState extends State<MyCommentsScreen> {
                   list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
                   return list;
                 },
-              ),
+              ).asyncMap((list) async {
+                // 삭제된 게시물에 달린 댓글은 목록에서 제외
+                final filtered = <_MyCommentItem>[];
+                for (final item in list) {
+                  bool postExists = false;
+                  if (item.isCommunity && item.communityEntry != null) {
+                    final post = await _communityRepository.getPostById(item.communityEntry!.postId);
+                    postExists = post != null;
+                  } else if (item.recipeComment != null) {
+                    final post = await _postRepository.getPostById(item.recipeComment!.postId);
+                    postExists = post != null;
+                  }
+                  if (postExists) filtered.add(item);
+                }
+                return filtered;
+              }),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return Center(

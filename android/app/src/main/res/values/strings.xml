@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 네이버 로그인 SDK: 네이버 개발자 센터에서 발급받은 값으로 교체하세요 -->
+    <string name="client_id">000ogJevl48K0Dpp17uS</string>
+    <string name="client_secret">jojQlCFtV1</string>
+    <string name="client_name">오늘의 식탁</string>
+</resources>

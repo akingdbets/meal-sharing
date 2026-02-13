@@ -23,16 +23,17 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
 
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = "1.8"
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+        // 네이버 개발자 센터에 등록한 패키지명과 일치해야 합니다.
         applicationId = "com.naisu.meal_sharing"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
@@ -62,4 +63,10 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // 네이버 로그인 SDK (flutter_naver_login 플러그인과 호환되는 5.10.0 사용 - 5.11.x는 getState() API 변경으로 크래시 발생)
+    implementation("com.navercorp.nid:oauth:5.10.0")
 }

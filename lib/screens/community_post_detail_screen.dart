@@ -4,7 +4,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/community_post_model.dart';
 import '../models/community_comment_model.dart';
 import '../repositories/community_repository.dart';
+import '../repositories/user_repository.dart';
 import '../services/auth_service.dart';
+import '../services/safety_service.dart';
+import '../services/hidden_content_service.dart';
+import '../utils/profanity_filter.dart';
 
 class CommunityPostDetailScreen extends StatefulWidget {
   final CommunityPostModel post;
@@ -17,7 +21,15 @@ class CommunityPostDetailScreen extends StatefulWidget {
 
 class _CommunityPostDetailScreenState extends State<CommunityPostDetailScreen> {
   final CommunityRepository _repo = CommunityRepository();
+  final UserRepository _userRepo = UserRepository();
   final AuthService _auth = AuthService();
+  final SafetyService _safetyService = SafetyService();
+  final HiddenContentService _hiddenContentService = HiddenContentService();
+
+  List<String> _getBlockedIds(dynamic userData) {
+    final list = userData?['blockedUserIds'] as List<dynamic>?;
+    return list?.map((e) => e.toString()).toList() ?? [];
+  }
   final TextEditingController _commentController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
@@ -49,6 +61,28 @@ class _CommunityPostDetailScreenState extends State<CommunityPostDetailScreen> {
     }
     final content = _commentController.text.trim();
     if (content.isEmpty) return;
+
+    final badWord = ProfanityFilter().containsProfanity(content);
+    if (badWord != null) {
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('부적절한 내용'),
+            content: const Text(
+              '입력한 내용에 부적절한 표현이 포함되어 있습니다.\n수정 후 다시 시도해 주세요.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('확인'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
 
     String authorName = user.displayName ?? '익명';
     try {
@@ -112,6 +146,143 @@ class _CommunityPostDetailScreenState extends State<CommunityPostDetailScreen> {
     }
   }
 
+  Future<String?> _showReportReasonDialog(BuildContext context) async {
+    const reasons = [
+      ('spam', '스팸'),
+      ('inappropriate', '부적절한 콘텐츠'),
+      ('hate', '혐오 발언'),
+      ('privacy', '개인정보 유출'),
+      ('other', '기타'),
+    ];
+    return showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  '신고 사유를 선택해주세요',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              ...reasons.map((e) => ListTile(
+                title: Text(e.$2),
+                onTap: () => Navigator.pop(ctx, e.$1),
+              )),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('취소'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showReportBlockBottomSheet({
+    required BuildContext context,
+    required String targetUid,
+    required String contentId,
+    required String type,
+    VoidCallback? onBlocked,
+  }) {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.flag_outlined),
+              title: const Text('신고하기'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                final reasonKey = await _showReportReasonDialog(context);
+                if (reasonKey == null || !mounted) return;
+                final reasonLabels = {
+                  'spam': '스팸',
+                  'inappropriate': '부적절한 콘텐츠',
+                  'hate': '혐오 발언',
+                  'privacy': '개인정보 유출',
+                  'other': '기타',
+                };
+                final reasonText = reasonLabels[reasonKey] ?? reasonKey;
+                try {
+                  await _safetyService.report(
+                    reporterUid: user.uid,
+                    targetUid: targetUid,
+                    contentId: contentId,
+                    type: type,
+                    reason: reasonText,
+                  );
+                  if (type == 'post') {
+                    await _hiddenContentService.addHiddenPost(contentId);
+                    if (mounted) Navigator.pop(context);
+                  } else {
+                    await _hiddenContentService.addHiddenComment(contentId);
+                  }
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('신고가 접수되었습니다. 해당 콘텐츠가 숨겨졌습니다.')),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('신고 처리 중 오류: $e')),
+                    );
+                  }
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.block),
+              title: const Text('사용자 차단'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                try {
+                  await _safetyService.blockUser(
+                    currentUid: user.uid,
+                    targetUid: targetUid,
+                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('사용자를 차단했습니다')),
+                    );
+                    onBlocked?.call();
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('차단 처리 중 오류: $e')),
+                    );
+                  }
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _deleteComment(CommunityCommentModel comment) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -172,16 +343,56 @@ class _CommunityPostDetailScreenState extends State<CommunityPostDetailScreen> {
               itemBuilder: (context) => [
                 const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete_outline, size: 20, color: Colors.red), SizedBox(width: 8), Text('삭제', style: TextStyle(color: Colors.red))])),
               ],
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.more_vert, color: Colors.black87),
+              onPressed: () => _showReportBlockBottomSheet(
+                context: context,
+                targetUid: widget.post.userId,
+                contentId: widget.post.id,
+                type: 'post',
+                onBlocked: () => Navigator.pop(context),
+              ),
+              tooltip: '더보기',
             ),
         ],
       ),
       body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance.collection('community_posts').doc(widget.post.id).snapshots(),
-        builder: (context, postSnap) {
-          final post = (postSnap.hasData && postSnap.data!.exists)
-              ? CommunityPostModel.fromFirestore(postSnap.data!)
-              : widget.post;
-          return Column(
+        stream: _auth.currentUser != null ? _userRepo.streamUser(_auth.currentUser!.uid) : null,
+        builder: (context, userSnap) {
+          final blockedIds = userSnap.hasData ? _getBlockedIds(userSnap.data?.data()) : <String>[];
+          if (blockedIds.contains(widget.post.userId)) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.block, size: 64, color: Colors.grey[400]),
+                    const SizedBox(height: 16),
+                    Text(
+                      '차단한 사용자의 게시글입니다',
+                      style: TextStyle(fontSize: 16, color: Colors.grey[700]),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('돌아가기'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+          return StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance.collection('community_posts').doc(widget.post.id).snapshots(),
+            builder: (context, postSnap) {
+              final post = (postSnap.hasData && postSnap.data!.exists)
+                  ? CommunityPostModel.fromFirestore(postSnap.data!)
+                  : widget.post;
+              return Column(
             children: [
               Expanded(
                 child: SingleChildScrollView(
@@ -274,23 +485,42 @@ class _CommunityPostDetailScreenState extends State<CommunityPostDetailScreen> {
                               child: Center(child: Text('댓글을 불러올 수 없습니다.', style: TextStyle(color: Colors.grey[600]))),
                             );
                           }
-                          final comments = snapshot.data ?? [];
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: comments.map((comment) => _CommentBlock(
-                              postId: widget.post.id,
-                              comment: comment,
-                              currentUserId: _auth.currentUser?.uid,
-                              formatTimestamp: _formatTimestamp,
-                              onReply: () {
-                                setState(() {
-                                  _replyingToCommentId = comment.id;
-                                  _replyingToAuthorName = comment.authorName;
-                                });
-                              },
-                              onDelete: () => _deleteComment(comment),
-                              repo: _repo,
-                            )).toList(),
+                          final commentsRaw = snapshot.data ?? [];
+                          final commentsBlocked = blockedIds.isEmpty
+                              ? commentsRaw
+                              : commentsRaw.where((c) => !blockedIds.contains(c.userId)).toList();
+                          return ListenableBuilder(
+                            listenable: _hiddenContentService,
+                            builder: (context, _) {
+                              final comments = commentsBlocked
+                                  .where((c) => !_hiddenContentService.isCommentHidden(c.id))
+                                  .toList();
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: comments.map((comment) => _CommentBlock(
+                                  postId: widget.post.id,
+                                  comment: comment,
+                                  currentUserId: _auth.currentUser?.uid,
+                                  formatTimestamp: _formatTimestamp,
+                                  onReply: () {
+                                    setState(() {
+                                      _replyingToCommentId = comment.id;
+                                      _replyingToAuthorName = comment.authorName;
+                                    });
+                                  },
+                                  onDelete: () => _deleteComment(comment),
+                                  repo: _repo,
+                                  onReportComment: (targetUid, commentId) => _showReportBlockBottomSheet(
+                                    context: context,
+                                    targetUid: targetUid,
+                                    contentId: commentId,
+                                    type: 'comment',
+                                    onBlocked: () {},
+                                  ),
+                                  hiddenContentService: _hiddenContentService,
+                                )).toList(),
+                              );
+                            },
                           );
                         },
                       ),
@@ -348,6 +578,8 @@ class _CommunityPostDetailScreenState extends State<CommunityPostDetailScreen> {
             ],
           );
         },
+      );
+        },
       ),
     );
   }
@@ -362,6 +594,8 @@ class _CommentBlock extends StatelessWidget {
   final VoidCallback onReply;
   final VoidCallback onDelete;
   final CommunityRepository repo;
+  final void Function(String targetUid, String commentId)? onReportComment;
+  final HiddenContentService hiddenContentService;
 
   const _CommentBlock({
     required this.postId,
@@ -371,6 +605,8 @@ class _CommentBlock extends StatelessWidget {
     required this.onReply,
     required this.onDelete,
     required this.repo,
+    this.onReportComment,
+    required this.hiddenContentService,
   });
 
   @override
@@ -405,13 +641,22 @@ class _CommentBlock extends StatelessWidget {
                         const SizedBox(width: 8),
                         Text(formatTimestamp(comment.createdAt), style: TextStyle(fontSize: 12, color: Colors.grey[500])),
                         const Spacer(),
-                        if (isOwner)
+                        if (!isOwner && onReportComment != null)
+                          IconButton(
+                            icon: Icon(Icons.more_horiz, size: 18, color: Colors.grey[600]),
+                            onPressed: () => onReportComment!(comment.userId, comment.id),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                            tooltip: '신고하기',
+                          ),
+                        if (isOwner) ...[
                           IconButton(
                             icon: Icon(Icons.delete_outline, size: 18, color: Colors.grey[600]),
                             onPressed: onDelete,
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                           ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 4),
@@ -453,7 +698,11 @@ class _CommentBlock extends StatelessWidget {
             stream: repo.streamReplies(postId, comment.id),
             builder: (context, replySnap) {
               if (!replySnap.hasData || replySnap.data!.isEmpty) return const SizedBox.shrink();
-              final replies = replySnap.data!;
+              final repliesRaw = replySnap.data!;
+              final replies = repliesRaw
+                  .where((r) => !hiddenContentService.isCommentHidden(r.id))
+                  .toList();
+              if (replies.isEmpty) return const SizedBox.shrink();
               return Padding(
                 padding: const EdgeInsets.only(left: 42, top: 12),
                 child: Column(
@@ -485,6 +734,7 @@ class _CommentBlock extends StatelessWidget {
                       }
                     },
                     repo: repo,
+                    onReportComment: onReportComment,
                   )).toList(),
                 ),
               );
@@ -503,6 +753,7 @@ class _ReplyRow extends StatelessWidget {
   final String Function(DateTime) formatTimestamp;
   final VoidCallback onDelete;
   final CommunityRepository repo;
+  final void Function(String targetUid, String commentId)? onReportComment;
 
   const _ReplyRow({
     required this.postId,
@@ -511,6 +762,7 @@ class _ReplyRow extends StatelessWidget {
     required this.formatTimestamp,
     required this.onDelete,
     required this.repo,
+    this.onReportComment,
   });
 
   @override
@@ -533,8 +785,16 @@ class _ReplyRow extends StatelessWidget {
                     Text(reply.authorName, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
                     const SizedBox(width: 6),
                     Text(formatTimestamp(reply.createdAt), style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                    const Spacer(),
+                    if (!isOwner && onReportComment != null)
+                      IconButton(
+                        icon: Icon(Icons.more_horiz, size: 16, color: Colors.grey[600]),
+                        onPressed: () => onReportComment!(reply.userId, reply.id),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                        tooltip: '신고하기',
+                      ),
                     if (isOwner) ...[
-                      const Spacer(),
                       IconButton(
                         icon: Icon(Icons.delete_outline, size: 16, color: Colors.grey[600]),
                         onPressed: onDelete,

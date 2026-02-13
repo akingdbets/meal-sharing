@@ -188,6 +188,8 @@ class _MyScrappedPostsScreenState extends State<MyScrappedPostsScreen> {
                             imageUrl: post.mainImageUrl,
                             isLiked: post.likedBy.contains(_authService.currentUser?.uid ?? ''),
                             userId: post.userId,
+                            cookingTime: post.cookingTime,
+                            servings: post.servings,
                           ),
                         ),
                       );

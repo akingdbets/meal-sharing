@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../widgets/post_card.dart';
 import '../models/post_model.dart';
 import '../repositories/post_repository.dart';
 import '../repositories/user_repository.dart';
 import '../services/auth_service.dart';
 import '../services/like_sync_service.dart';
+import '../services/hidden_content_service.dart';
 import 'create_post_screen.dart';
 import 'post_detail_screen.dart';
 import 'search_screen.dart';
+import 'notification_history_screen.dart';
 import 'package:intl/intl.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -37,151 +40,213 @@ class HomeScreen extends StatelessWidget {
         return DefaultTabController(
           length: 2,
           initialIndex: initialIndex,
-          child: Scaffold(
-        backgroundColor: const Color(0xFFF9FAFB),
-        body: SafeArea(
-          child: Column(
-            children: [
-              // Custom AppBar with Search
-              Container(
-                color: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '오늘의 식탁',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 24,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Search Icon Button
-                    IconButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const SearchScreen(),
-                          ),
-                        );
-                      },
-                      icon: Icon(
-                        Icons.search,
-                        color: Colors.grey[700],
-                      ),
-                      tooltip: '검색',
-                    ),
-                  ],
-                ),
-              ),
-              // TabBar (Toss Style)
-              Container(
-                color: Colors.white,
-                child: TabBar(
-                  tabs: const [
-                    Tab(text: '현실 집밥'),
-                    Tab(text: '자취 밥상'),
-                  ],
-                  labelColor: Colors.black,
-                  unselectedLabelColor: Colors.grey[600],
-                  labelStyle: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  unselectedLabelStyle: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.normal,
-                  ),
-                  indicatorColor: Theme.of(context).colorScheme.primary,
-                  indicatorWeight: 3.0,
-                  indicatorSize: TabBarIndicatorSize.tab,
-                ),
-              ),
-              // Tag List
-              Container(
-                color: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: _TagList(),
-              ),
-              // TabBarView Content
-              Expanded(
-                child: TabBarView(
-                  children: [
-                    _PostListView(category: 'housewife'),
-                    _PostListView(category: 'survival'),
-                  ],
-                ),
-              ),
-            ],
+          child: _HomeContent(
+            initialIndex: initialIndex,
           ),
-        ),
-        floatingActionButton: Builder(
-          builder: (context) {
-            return FloatingActionButton(
-              heroTag: 'home_fab',
-              onPressed: () {
-                final tabController = DefaultTabController.of(context);
-                final isSurvival = tabController.index == 1;
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => CreatePostScreen(
-                      isSurvival: isSurvival,
-                    ),
-                  ),
-                );
-              },
-              backgroundColor: Theme.of(context).colorScheme.primary,
-              child: const Icon(Icons.add, color: Colors.white),
-            );
-          },
-        ),
-      ),
         );
       },
     );
   }
-
 }
 
-class _TagList extends StatelessWidget {
-  const _TagList();
+/// StatefulWidget that holds selectedTag for tag filtering.
+/// Tag toggle: click selected tag -> deselect (null), click other -> select.
+class _HomeContent extends StatefulWidget {
+  final int initialIndex;
 
-  void _handleTagSelection(BuildContext context, String tag) {
-    // Placeholder: Show search dialog or filter posts by tag
-    // For now, just print to console
-    print('Tag selected: $tag');
-    
-    // TODO: Implement tag-based search/filter functionality
-    // You can show a dialog or navigate to a filtered post list
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('태그 검색'),
-        content: Text('"$tag" 태그로 검색하시겠습니까?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
-          TextButton(
+  const _HomeContent({required this.initialIndex});
+
+  @override
+  State<_HomeContent> createState() => _HomeContentState();
+}
+
+class _HomeContentState extends State<_HomeContent> {
+  String? selectedTag;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF9FAFB),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Custom AppBar with Search
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '오늘의 식탁',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 25,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const NotificationHistoryScreen(),
+                        ),
+                      );
+                    },
+                    icon: Icon(Icons.notifications_outlined, color: Colors.grey[700]),
+                    tooltip: '알림 내역',
+                  ),
+                  IconButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const SearchScreen(),
+                        ),
+                      );
+                    },
+                    icon: Icon(Icons.search, color: Colors.grey[700]),
+                    tooltip: '검색',
+                  ),
+                ],
+              ),
+            ),
+            // TabBar
+            Container(
+              color: Colors.white,
+              child: TabBar(
+                tabs: const [
+                  Tab(text: '현실 집밥'),
+                  Tab(text: '자취 밥상'),
+                ],
+                labelColor: Colors.black,
+                unselectedLabelColor: Colors.grey[600],
+                labelStyle: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+                unselectedLabelStyle: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.normal,
+                ),
+                indicatorColor: Theme.of(context).colorScheme.primary,
+                indicatorWeight: 3.0,
+                indicatorSize: TabBarIndicatorSize.tab,
+              ),
+            ),
+            // Tag List with selection state
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: _TagList(
+                selectedTag: selectedTag,
+                onTagSelected: (tag) {
+                  setState(() {
+                    selectedTag = (selectedTag == tag) ? null : tag;
+                  });
+                },
+              ),
+            ),
+            // TabBarView Content
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _PostListView(category: 'housewife', selectedTag: selectedTag),
+                  _PostListView(category: 'survival', selectedTag: selectedTag),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      floatingActionButton: Builder(
+        builder: (context) {
+          return FloatingActionButton.extended(
+            heroTag: 'home_fab',
             onPressed: () {
-              Navigator.pop(context);
-              // TODO: Navigate to filtered post list or show search results
+              final tabController = DefaultTabController.of(context);
+              final isSurvival = tabController.index == 1;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => CreatePostScreen(
+                    isSurvival: isSurvival,
+                  ),
+                ),
+              );
             },
-            child: const Text('검색'),
-          ),
-        ],
+            backgroundColor: Theme.of(context).colorScheme.primary,
+            icon: const Icon(Icons.edit_note, color: Colors.white),
+            label: const Text(
+              '글쓰기',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          );
+        },
       ),
     );
+  }
+}
+
+class _TagList extends StatefulWidget {
+  final String? selectedTag;
+  final ValueChanged<String> onTagSelected;
+
+  const _TagList({
+    required this.selectedTag,
+    required this.onTagSelected,
+  });
+
+  @override
+  State<_TagList> createState() => _TagListState();
+}
+
+class _TagListState extends State<_TagList> {
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _selectedTagKey = GlobalKey();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TagList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 선택된 태그가 바뀌었을 때 해당 태그를 가로 중앙으로 스크롤
+    if (oldWidget.selectedTag != widget.selectedTag && widget.selectedTag != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final ctx = _selectedTagKey.currentContext;
+        if (ctx == null || !ctx.mounted) return;
+        try {
+          Scrollable.ensureVisible(
+            ctx,
+            alignment: 0.5,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+          );
+        } catch (_) {
+          // RenderObject may be detached (e.g. user navigated away)
+        }
+      });
+    }
+  }
+
+  void _handleTagSelection(BuildContext context, String tag) {
+    widget.onTagSelected(tag);
   }
 
   @override
@@ -217,19 +282,24 @@ class _TagList extends StatelessWidget {
           return const SizedBox(height: 40);
         }
 
-        // Display tags
+        // Display tags — ScrollController를 유지해 선택 시 스크롤 위치가 초기화되지 않음
         return SizedBox(
           height: 40,
           child: ListView.builder(
+            controller: _scrollController,
             scrollDirection: Axis.horizontal,
             itemCount: tags.length,
             itemBuilder: (context, index) {
               final tag = tags[index];
+              final isSelected = widget.selectedTag == tag;
+              // GlobalKey는 선택된 태그 하나에만 부여 (중복 방지: 동일 태그가 여러 개여도 첫 번째만)
+              final useScrollKey = isSelected && tags.indexOf(tag) == index;
               return Padding(
+                key: useScrollKey ? _selectedTagKey : ValueKey('tag_$index'),
                 padding: const EdgeInsets.only(right: 8),
                 child: ChoiceChip(
                   label: Text(tag),
-                  selected: false,
+                  selected: isSelected,
                   onSelected: (selected) {
                     _handleTagSelection(context, tag);
                   },
@@ -263,8 +333,12 @@ class _TagList extends StatelessWidget {
 
 class _PostListView extends StatefulWidget {
   final String category;
+  final String? selectedTag;
 
-  const _PostListView({required this.category});
+  const _PostListView({
+    required this.category,
+    this.selectedTag,
+  });
 
   @override
   State<_PostListView> createState() => _PostListViewState();
@@ -274,7 +348,7 @@ class _PostListViewState extends State<_PostListView> with AutomaticKeepAliveCli
   final PostRepository _repository = PostRepository();
   final AuthService _authService = AuthService();
   final LikeSyncService _likeSyncService = LikeSyncService();
-  late final Stream<List<PostModel>> _postsStream;
+  late Stream<List<PostModel>> _postsStream;
   
   // 좋아요 상태 캐시 (postId -> isLiked, likeCount)
   final Map<String, bool> _likeStatusCache = {};
@@ -286,12 +360,19 @@ class _PostListViewState extends State<_PostListView> with AutomaticKeepAliveCli
   @override
   bool get wantKeepAlive => true;
 
+  void _updatePostsStream() {
+    final isSurvival = widget.category == 'survival';
+    _postsStream = _repository.streamPostsByMode(
+      isSurvival: isSurvival,
+      selectedTag: widget.selectedTag,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
-    final isSurvival = widget.category == 'survival';
-    _postsStream = _repository.streamPostsByMode(isSurvival: isSurvival);
-    
+    _updatePostsStream();
+
     // 좋아요 상태 변경 이벤트 구독
     _likeSubscription = _likeSyncService.stream.listen((event) {
       if (mounted) {
@@ -304,6 +385,14 @@ class _PostListViewState extends State<_PostListView> with AutomaticKeepAliveCli
     });
   }
   
+  @override
+  void didUpdateWidget(covariant _PostListView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedTag != widget.selectedTag) {
+      _updatePostsStream();
+    }
+  }
+
   @override
   void dispose() {
     // 구독 취소하여 메모리 누수 방지
@@ -328,13 +417,25 @@ class _PostListViewState extends State<_PostListView> with AutomaticKeepAliveCli
     }
   }
 
+  List<String> _getBlockedIds(dynamic userData) {
+    final list = userData?['blockedUserIds'] as List<dynamic>?;
+    return list?.map((e) => e.toString()).toList() ?? [];
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context); // AutomaticKeepAliveClientMixin을 위해 필수
-    return StreamBuilder<List<PostModel>>(
-      stream: _postsStream,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+    final user = _authService.currentUser;
+
+    return StreamBuilder<DocumentSnapshot>(
+      stream: user != null ? UserRepository().streamUser(user.uid) : null,
+      builder: (context, userSnap) {
+        final blockedIds = userSnap.hasData ? _getBlockedIds(userSnap.data?.data()) : <String>[];
+
+        return StreamBuilder<List<PostModel>>(
+          stream: _postsStream,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(
             child: CircularProgressIndicator(),
           );
@@ -363,37 +464,49 @@ class _PostListViewState extends State<_PostListView> with AutomaticKeepAliveCli
           );
         }
 
-        final posts = snapshot.data ?? [];
+            final postsRaw = snapshot.data ?? [];
+            // [Safety] Filter out posts from blocked users (client-side)
+            final postsBlocked = blockedIds.isEmpty
+                ? postsRaw
+                : postsRaw.where((p) => !blockedIds.contains(p.userId)).toList();
 
-        if (posts.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.restaurant_menu,
-                  size: 64,
-                  color: Colors.grey[300],
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  '아직 게시글이 없어요',
-                  style: TextStyle(
-                    color: Colors.grey[500],
-                    fontSize: 16,
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
+            return ListenableBuilder(
+              listenable: HiddenContentService(),
+              builder: (context, _) {
+                final hiddenService = HiddenContentService();
+                final posts = postsBlocked
+                    .where((p) => !hiddenService.isPostHidden(p.id))
+                    .toList();
 
-        return ListView.builder(
-          key: PageStorageKey('home_feed_scroll_${widget.category}'),
-          padding: const EdgeInsets.all(16),
-          itemCount: posts.length,
-          itemBuilder: (context, index) {
-            final post = posts[index];
+                if (posts.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.restaurant_menu,
+                          size: 64,
+                          color: Colors.grey[300],
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          '아직 게시글이 없어요',
+                          style: TextStyle(
+                            color: Colors.grey[500],
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  key: PageStorageKey('home_feed_scroll_${widget.category}'),
+                  padding: const EdgeInsets.all(16),
+                  itemCount: posts.length,
+                  itemBuilder: (context, index) {
+                    final post = posts[index];
             return Padding(
               padding: const EdgeInsets.only(bottom: 16),
               child: InkWell(
@@ -422,10 +535,16 @@ class _PostListViewState extends State<_PostListView> with AutomaticKeepAliveCli
                       post.likedBy.contains(_authService.currentUser?.uid ?? ''),
                   imageUrl: post.mainImageUrl,
                   userId: post.userId,
+                  cookingTime: post.cookingTime,
+                  servings: post.servings,
                 ),
               ),
             );
-          },
+                  },
+                );
+              },
+            );
+        },
         );
       },
     );

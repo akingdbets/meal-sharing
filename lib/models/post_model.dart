@@ -1,23 +1,39 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// Ingredient model for post ingredients
+/// Ingredient model for post ingredients.
+/// [amount]: 자유 입력 수량+단위 (예: "200g", "3스푼", "반 개"). 우선 사용.
+/// [quantity], [unit]: 구 형식 호환용.
 class Ingredient {
   final String name;
   final String coupangLink;
-  final String? quantity; // Quantity (e.g., "2", "500")
-  final String? unit; // Unit (e.g., "개", "g", "ml")
+  final String? amount; // 수량+단위 자유 텍스트 (예: "200g", "3스푼", "반 개")
+  final String? quantity; // 레거시
+  final String? unit; // 레거시
 
   Ingredient({
     required this.name,
     required this.coupangLink,
+    this.amount,
     this.quantity,
     this.unit,
   });
+
+  /// 표시용 수량/단위 문자열 (amount 우선, 없으면 quantity + unit)
+  String get displayAmount {
+    if (amount != null && amount!.trim().isNotEmpty) return amount!.trim();
+    final q = quantity?.trim() ?? '';
+    final u = unit?.trim() ?? '';
+    if (q.isEmpty && u.isEmpty) return '';
+    if (u.isEmpty) return q;
+    if (q.isEmpty) return u;
+    return '$q $u';
+  }
 
   Map<String, dynamic> toJson() {
     return {
       'name': name,
       'coupangLink': coupangLink,
+      'amount': amount,
       'quantity': quantity,
       'unit': unit,
     };
@@ -27,6 +43,7 @@ class Ingredient {
     return Ingredient(
       name: json['name'] as String? ?? '',
       coupangLink: json['coupangLink'] as String? ?? '',
+      amount: json['amount'] as String?,
       quantity: json['quantity'] as String?,
       unit: json['unit'] as String?,
     );

@@ -11,6 +11,8 @@ class UserModel {
   final List<String> scrappedPostIds; // 스크랩한 게시물 ID 리스트
   final int followersCount;
   final int followingCount;
+  final String? profileImage; // [추가됨] 프로필 이미지 URL (AuthService 에러 해결용)
+  final List<String> blockedUserIds; // [Safety] 차단한 사용자 UID 목록
 
   UserModel({
     required this.uid,
@@ -22,6 +24,8 @@ class UserModel {
     this.scrappedPostIds = const [],
     this.followersCount = 0,
     this.followingCount = 0,
+    this.profileImage,
+    this.blockedUserIds = const [],
   });
 
   /// Convert UserModel to Map for Firestore
@@ -34,6 +38,10 @@ class UserModel {
       'createdAt': Timestamp.fromDate(createdAt),
       'lastLoginAt': Timestamp.fromDate(lastLoginAt),
       'scrappedPostIds': scrappedPostIds,
+      'followersCount': followersCount, // [보완] DB 저장 시 누락되지 않도록 추가
+      'followingCount': followingCount, // [보완] DB 저장 시 누락되지 않도록 추가
+      'profileImage': profileImage,
+      'blockedUserIds': blockedUserIds,
     };
   }
 
@@ -64,21 +72,26 @@ class UserModel {
       userType: map['userType'] as String? ?? 'housewife',
       createdAt: createdAt,
       lastLoginAt: lastLoginAt,
-      scrappedPostIds: (map['scrappedPostIds'] as List<dynamic>?)
+      scrappedPostIds:
+          (map['scrappedPostIds'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
           [],
       followersCount: (map['followersCount'] as int?) ?? 0,
       followingCount: (map['followingCount'] as int?) ?? 0,
+      profileImage: map['profileImage'] as String?,
+      blockedUserIds:
+          (map['blockedUserIds'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
     );
   }
 
   /// Create UserModel from Firestore DocumentSnapshot
   factory UserModel.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
-    return UserModel.fromMap({
-      ...data,
-      'uid': doc.id,
-    });
+    // 데이터가 없는 경우를 대비해 안전하게 처리
+    final data = doc.data() as Map<String, dynamic>? ?? {};
+    return UserModel.fromMap({...data, 'uid': doc.id});
   }
 }

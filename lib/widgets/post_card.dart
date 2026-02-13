@@ -22,6 +22,8 @@ class PostCard extends StatefulWidget {
   final String userId; // Added userId for profile navigation
   final List<String> postIngredients; // 게시물의 재료 목록
   final List<String> userIngredients; // 사용자가 가진 재료 목록
+  final int? cookingTime; // 조리시간(분)
+  final int? servings; // 인분
 
   const PostCard({
     super.key,
@@ -38,6 +40,8 @@ class PostCard extends StatefulWidget {
     required this.userId, // Added userId parameter
     this.postIngredients = const [], // 게시물의 재료 목록 (기본값: 빈 리스트)
     this.userIngredients = const [], // 사용자가 가진 재료 목록 (기본값: 빈 리스트)
+    this.cookingTime,
+    this.servings,
   });
 
   @override
@@ -636,6 +640,85 @@ class _PostCardState extends State<PostCard> {
                     ),
                   ],
                 ),
+                // 조리시간 · 인분 (있을 때만)
+                if ((widget.cookingTime != null && widget.cookingTime! > 0) ||
+                    (widget.servings != null && widget.servings! > 1)) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      if (widget.cookingTime != null && widget.cookingTime! > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Colors.orange.shade200,
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.schedule,
+                                size: 14,
+                                color: Colors.orange.shade700,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${widget.cookingTime}분',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.orange.shade800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (widget.servings != null && widget.servings! > 1)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Colors.teal.shade200,
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.restaurant,
+                                size: 14,
+                                color: Colors.teal.shade700,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${widget.servings}인분',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.teal.shade800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 12),
                 // Tags
                 Wrap(

@@ -6,6 +6,7 @@ import 'dart:io';
 import '../models/community_post_model.dart';
 import '../repositories/community_repository.dart';
 import '../services/auth_service.dart';
+import '../utils/profanity_filter.dart';
 
 class CreateCommunityPostScreen extends StatefulWidget {
   const CreateCommunityPostScreen({super.key});
@@ -134,6 +135,26 @@ class _CreateCommunityPostScreenState extends State<CreateCommunityPostScreen> {
     if (content.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('내용을 입력해주세요')),
+      );
+      return;
+    }
+
+    final badWord = ProfanityFilter().containsProfanity(content);
+    if (badWord != null) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('부적절한 내용'),
+          content: const Text(
+            '입력한 내용에 부적절한 표현이 포함되어 있습니다.\n수정 후 다시 시도해 주세요.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
       );
       return;
     }

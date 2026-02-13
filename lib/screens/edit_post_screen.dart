@@ -86,17 +86,10 @@ class _EditPostScreenState extends State<EditPostScreen> {
     _isSurvival = post.isSurvival;
     _contentController.text = post.content;
     
-    // Load recipe steps
+    // Load recipe steps (수정 모드에서는 AI 재료 자동 탐지 비활성화)
     if (post.recipeSteps.isNotEmpty) {
       for (final step in post.recipeSteps) {
-        final controller = TextEditingController(text: step);
-        controller.addListener(() {
-          _ingredientExtractionTimer?.cancel();
-          _ingredientExtractionTimer = Timer(const Duration(milliseconds: 500), () {
-            _extractIngredientsFromSteps();
-          });
-        });
-        _recipeStepControllers.add(controller);
+        _recipeStepControllers.add(TextEditingController(text: step));
       }
     } else {
       _addRecipeStep();
@@ -108,10 +101,10 @@ class _EditPostScreenState extends State<EditPostScreen> {
     }
     _servings = post.servings;
     
-    // Load ingredients
+    // Load ingredients (수량/단위 자유 텍스트)
     for (final ingredient in post.ingredients) {
       _ingredients.add(ingredient.name);
-      final controller = TextEditingController(text: ingredient.quantity ?? '');
+      final controller = TextEditingController(text: ingredient.displayAmount);
       _ingredientControllers[ingredient.name] = controller;
     }
     
@@ -136,9 +129,7 @@ class _EditPostScreenState extends State<EditPostScreen> {
     if (post.cookingTips != null && post.cookingTips!.isNotEmpty) {
       _cookingTipsController.text = post.cookingTips!;
     }
-    
-    // Extract ingredients from existing recipe steps
-    _extractIngredientsFromSteps();
+    // 수정 모드: AI 재료 자동 탐지 비활성화 (사용자가 수동 수정한 재료가 덮어씌워지지 않도록)
   }
 
   @override
@@ -233,6 +224,7 @@ class _EditPostScreenState extends State<EditPostScreen> {
           content: SizedBox(
             width: double.maxFinite,
             child: Autocomplete<String>(
+              key: const ValueKey('autocomplete_menu_edit'),
               optionsBuilder: (textEditingValue) {
                 if (textEditingValue.text.isEmpty) {
                   return Iterable<String>.empty();
@@ -372,25 +364,9 @@ class _EditPostScreenState extends State<EditPostScreen> {
     }
   }
 
+  /// 수정 모드에서는 비활성화: 사용자가 수동 수정한 재료 목록이 AI 탐지로 덮어씌워지지 않도록 함.
   void _extractIngredientsFromSteps() {
-    final allText = _recipeStepControllers
-        .map((c) => c.text)
-        .join(' ');
-    final extracted = _aiService.extractIngredients(allText);
-    
-    setState(() {
-      _detectedIngredients = extracted;
-      // Merge with existing ingredients (no duplicates)
-      for (final ingredient in extracted) {
-        if (!_ingredients.contains(ingredient)) {
-          _ingredients.add(ingredient);
-          // Initialize controller for new ingredient
-          if (!_ingredientControllers.containsKey(ingredient)) {
-            _ingredientControllers[ingredient] = TextEditingController();
-          }
-        }
-      }
-    });
+    // EditPostScreen: AI 재료 자동 탐지 사용 안 함
   }
 
   void _addIngredient(String ingredient) {
@@ -667,13 +643,11 @@ class _EditPostScreenState extends State<EditPostScreen> {
 
       final ingredients = _ingredients.map((name) {
         final controller = _ingredientControllers[name];
-        final quantity = controller?.text.trim();
-        final unit = _aiService.getUnitForIngredient(name);
+        final amount = controller?.text.trim();
         return Ingredient(
           name: name,
           coupangLink: '',
-          quantity: quantity?.isNotEmpty == true ? quantity : null,
-          unit: unit,
+          amount: amount?.isNotEmpty == true ? amount : null,
         );
       }).toList();
 
@@ -1513,6 +1487,7 @@ class _EditPostScreenState extends State<EditPostScreen> {
             children: [
               Expanded(
                 child: Autocomplete<String>(
+                  key: const ValueKey('autocomplete_ingredient_edit'),
                   optionsBuilder: (textEditingValue) {
                     final query = textEditingValue.text.toLowerCase().trim();
                     if (query.isEmpty) {
@@ -1600,8 +1575,6 @@ class _EditPostScreenState extends State<EditPostScreen> {
                 children: _ingredients.asMap().entries.map((entry) {
                   final index = entry.key;
                   final ingredient = entry.value;
-                  final unit = _aiService.getUnitForIngredient(ingredient);
-                  
                   return Column(
                     children: [
                       Padding(
@@ -1623,22 +1596,18 @@ class _EditPostScreenState extends State<EditPostScreen> {
                               ),
                             ),
                             const SizedBox(width: 12),
-                            // 수량 입력 필드
-                            SizedBox(
-                              width: 70,
+                            // 수량/단위 자유 입력 (예: 200g, 3스푼, 반 개)
+                            Expanded(
+                              flex: 1,
                               child: TextField(
                                 controller: _ingredientControllers[ingredient],
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.right,
-                                onChanged: (_) {
-                                  // 값이 변경될 때마다 버튼 상태 업데이트
-                                  setState(() {});
-                                },
+                                onChanged: (_) => setState(() {}),
                                 decoration: InputDecoration(
-                                  hintText: '0',
+                                  hintText: '예: 200g, 3스푼, 반 개',
+                                  hintStyle: TextStyle(fontSize: 12, color: Colors.grey[500]),
                                   isDense: true,
                                   contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
+                                    horizontal: 10,
                                     vertical: 8,
                                   ),
                                   border: OutlineInputBorder(
@@ -1658,19 +1627,6 @@ class _EditPostScreenState extends State<EditPostScreen> {
                                   ),
                                   filled: true,
                                   fillColor: Colors.grey[50],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            // 단위 텍스트
-                            SizedBox(
-                              width: 40,
-                              child: Text(
-                                unit,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey[700],
-                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
                             ),

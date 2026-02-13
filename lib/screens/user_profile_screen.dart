@@ -8,6 +8,7 @@ import '../repositories/meal_log_repository.dart';
 import '../repositories/post_repository.dart';
 import '../repositories/user_repository.dart';
 import '../services/auth_service.dart';
+import '../services/safety_service.dart';
 import 'post_detail_screen.dart';
 import 'follow_list_screen.dart';
 
@@ -31,10 +32,17 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   String _viewMode = 'list'; // 'list' or 'calendar'
   DateTime _currentMonth = DateTime.now();
   bool _isLocaleInitialized = false;
+
+  // 리스트 뷰: 월별 필터 + 더보기 페이징 (마이로그와 동일)
+  DateTime _selectedMonth = DateTime.now();
+  int _displayLimit = 10;
+  static const int _limitStep = 10;
+
   final MealLogRepository _repository = MealLogRepository();
   final PostRepository _postRepository = PostRepository();
   final UserRepository _userRepo = UserRepository();
   final AuthService _auth = AuthService();
+  final SafetyService _safetyService = SafetyService();
 
   @override
   void initState() {
@@ -93,6 +101,387 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         'mealsCooked': mealsCooked,
       };
     });
+  }
+
+  /// 리스트 상단 월 선택기: [<] YYYY년 M월 [>], 월 변경 시 _displayLimit 리셋
+  Widget _buildMonthSelector(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconButton(
+            onPressed: () {
+              setState(() {
+                _selectedMonth = DateTime(
+                  _selectedMonth.year,
+                  _selectedMonth.month - 1,
+                );
+                _displayLimit = _limitStep;
+              });
+            },
+            icon: const Icon(Icons.chevron_left),
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.grey[100],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Text(
+            '${_selectedMonth.year}년 ${_selectedMonth.month}월',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(width: 16),
+          IconButton(
+            onPressed: () {
+              setState(() {
+                _selectedMonth = DateTime(
+                  _selectedMonth.year,
+                  _selectedMonth.month + 1,
+                );
+                _displayLimit = _limitStep;
+              });
+            },
+            icon: const Icon(Icons.chevron_right),
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.grey[100],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 리스트 뷰 (월별 필터 + 더보기 페이징) — 마이로그와 동일
+  Widget _buildListContent(
+    ThemeData theme,
+    ConnectionState connectionState,
+    List<MealLogModel> logs,
+    Map<String, List<MealLogModel>> groupedLogs,
+  ) {
+    if (connectionState == ConnectionState.waiting && logs.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+    final allSortedDates = groupedLogs.keys.toList()
+      ..sort((a, b) => b.compareTo(a));
+    final monthFilteredDates = allSortedDates.where((dateStr) {
+      final d = DateTime.parse(dateStr);
+      return d.year == _selectedMonth.year && d.month == _selectedMonth.month;
+    }).toList();
+    final totalInMonth = monthFilteredDates.length;
+    final displayedDates = monthFilteredDates.take(_displayLimit).toList();
+    final hasMore = totalInMonth > _displayLimit;
+
+    if (logs.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildMonthSelector(theme),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              children: [
+                Icon(Icons.restaurant_menu, size: 64, color: Colors.grey[300]),
+                const SizedBox(height: 16),
+                Text(
+                  '아직 기록된 식단이 없어요',
+                  style: TextStyle(color: Colors.grey[500], fontSize: 16),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildMonthSelector(theme),
+        const SizedBox(height: 16),
+        if (displayedDates.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              '${_selectedMonth.month}월에는 기록된 식단이 없어요',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey[500], fontSize: 16),
+            ),
+          )
+        else ...[
+          ...displayedDates.map((dateStr) {
+            final date = DateTime.parse(dateStr);
+            final dayLogs = groupedLogs[dateStr]!;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.calendar_today, size: 20, color: Colors.orange[600]),
+                      const SizedBox(width: 8),
+                      Text(
+                        _isLocaleInitialized
+                            ? DateFormat('M월 d일 EEEE', 'ko_KR').format(date)
+                            : _formatDateKorean(date),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      childAspectRatio: 1,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                    ),
+                    itemCount: dayLogs.length,
+                    itemBuilder: (context, index) {
+                      final meal = dayLogs[index];
+                      return InkWell(
+                        onTap: () async {
+                          if (meal.postId != null && meal.postId!.isNotEmpty) {
+                            final post = await _postRepository.getPostById(meal.postId!);
+                            if (mounted && post != null) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => PostDetailScreen(post: post),
+                                ),
+                              );
+                            }
+                          } else {
+                            final posts = await _postRepository.getPostsByUserId(widget.userId);
+                            final matchingPost = posts.firstWhere(
+                              (post) {
+                                final postDate = DateTime(
+                                  post.createdAt.year,
+                                  post.createdAt.month,
+                                  post.createdAt.day,
+                                );
+                                final mealDate = DateTime(
+                                  meal.date.year,
+                                  meal.date.month,
+                                  meal.date.day,
+                                );
+                                return postDate.isAtSameMomentAs(mealDate) &&
+                                    post.mainImageUrl == meal.imageUrl;
+                              },
+                              orElse: () => posts.firstWhere(
+                                (post) {
+                                  final postDate = DateTime(
+                                    post.createdAt.year,
+                                    post.createdAt.month,
+                                    post.createdAt.day,
+                                  );
+                                  final mealDate = DateTime(
+                                    meal.date.year,
+                                    meal.date.month,
+                                    meal.date.day,
+                                  );
+                                  return postDate.isAtSameMomentAs(mealDate);
+                                },
+                                orElse: () => posts.first,
+                              ),
+                            );
+                            if (mounted && posts.isNotEmpty) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => PostDetailScreen(
+                                    post: matchingPost,
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                        },
+                        child: _MealCard(
+                          title: meal.mealTitle,
+                          imageUrl: meal.imageUrl,
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+          if (hasMore)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _displayLimit += _limitStep;
+                  });
+                },
+                icon: const Icon(Icons.add, size: 18),
+                label: Text('더보기 (${displayedDates.length}/$totalInMonth)'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+
+  Future<String?> _showReportReasonDialog(BuildContext context) async {
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('신고 사유 선택'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _reportReasonTile(ctx, 'spam', '스팸'),
+              _reportReasonTile(ctx, 'inappropriate', '부적절한 콘텐츠'),
+              _reportReasonTile(ctx, 'hate', '혐오 발언'),
+              _reportReasonTile(ctx, 'privacy', '개인정보 유출'),
+              _reportReasonTile(ctx, 'other', '기타'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _reportReasonTile(BuildContext context, String value, String label) {
+    return ListTile(
+      title: Text(label),
+      onTap: () => Navigator.pop(context, value),
+    );
+  }
+
+  void _showReportBlockBottomSheet(BuildContext context) {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.flag_outlined),
+              title: const Text('신고하기'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                final reasonKey = await _showReportReasonDialog(context);
+                if (reasonKey == null || !mounted) return;
+                final reasonLabels = {
+                  'spam': '스팸',
+                  'inappropriate': '부적절한 콘텐츠',
+                  'hate': '혐오 발언',
+                  'privacy': '개인정보 유출',
+                  'other': '기타',
+                };
+                final reasonText = reasonLabels[reasonKey] ?? reasonKey;
+                try {
+                  await _safetyService.report(
+                    reporterUid: user.uid,
+                    targetUid: widget.userId,
+                    contentId: widget.userId,
+                    type: 'user',
+                    reason: reasonText,
+                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('신고가 접수되었습니다.')),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('신고 처리 중 오류: $e')),
+                    );
+                  }
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.block),
+              title: const Text('사용자 차단'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                try {
+                  await _safetyService.blockUser(
+                    currentUid: user.uid,
+                    targetUid: widget.userId,
+                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('사용자를 차단했습니다')),
+                    );
+                    Navigator.pop(context);
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('차단 처리 중 오류: $e')),
+                    );
+                  }
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _showDateModal(
@@ -306,6 +695,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final numberFormat = NumberFormat('#,###');
+    final currentUid = _auth.currentUser?.uid;
+    final isMe = currentUid == widget.userId;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
@@ -319,6 +710,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         foregroundColor: Colors.black87,
+        actions: [
+          if (!isMe && currentUid != null && currentUid.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.more_vert),
+              onPressed: () => _showReportBlockBottomSheet(context),
+              tooltip: '더보기',
+            ),
+        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -762,172 +1161,18 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   ),
                 ),
 
-              // List View
+              // List View (월별 + 더보기, 마이로그와 동일)
               if (_viewMode == 'list')
                 StreamBuilder<List<MealLogModel>>(
                   stream: _repository.streamUserMealLogs(widget.userId),
                   builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-
                     final logs = snapshot.data ?? [];
                     final groupedLogs = _groupLogsByDate(logs);
-                    final sortedDates = groupedLogs.keys.toList()
-                      ..sort((a, b) => b.compareTo(a));
-
-                    if (logs.isEmpty) {
-                      return Container(
-                        padding: const EdgeInsets.all(32),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Column(
-                          children: [
-                            Icon(
-                              Icons.restaurant_menu,
-                              size: 64,
-                              color: Colors.grey[300],
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              '아직 기록된 식단이 없어요',
-                              style: TextStyle(
-                                color: Colors.grey[500],
-                                fontSize: 16,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-
-                    return Column(
-                      children: sortedDates.map((dateStr) {
-                        final date = DateTime.parse(dateStr);
-                        final dayLogs = groupedLogs[dateStr]!;
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 16),
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
-                                blurRadius: 10,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.calendar_today,
-                                    size: 20,
-                                    color: Colors.orange[600],
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    _isLocaleInitialized
-                                        ? DateFormat('M월 d일 EEEE', 'ko_KR').format(date)
-                                        : _formatDateKorean(date),
-                                    style: theme.textTheme.titleMedium?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-                              GridView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                gridDelegate:
-                                    const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 2,
-                                  childAspectRatio: 1,
-                                  crossAxisSpacing: 12,
-                                  mainAxisSpacing: 12,
-                                ),
-                                itemCount: dayLogs.length,
-                                itemBuilder: (context, index) {
-                                  final meal = dayLogs[index];
-                                  return InkWell(
-                                    onTap: () async {
-                                      if (meal.postId != null && meal.postId!.isNotEmpty) {
-                                        // Use postId to find the post directly
-                                        final post = await _postRepository.getPostById(meal.postId!);
-                                        if (mounted && post != null) {
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (context) => PostDetailScreen(post: post),
-                                            ),
-                                          );
-                                        }
-                                      } else {
-                                        // Fallback: Find post by date and imageUrl (for backward compatibility)
-                                        final posts = await _postRepository.getPostsByUserId(widget.userId);
-                                        final matchingPost = posts.firstWhere(
-                                          (post) {
-                                            final postDate = DateTime(
-                                              post.createdAt.year,
-                                              post.createdAt.month,
-                                              post.createdAt.day,
-                                            );
-                                            final mealDate = DateTime(
-                                              meal.date.year,
-                                              meal.date.month,
-                                              meal.date.day,
-                                            );
-                                            return postDate.isAtSameMomentAs(mealDate) &&
-                                                post.mainImageUrl == meal.imageUrl;
-                                          },
-                                          orElse: () => posts.firstWhere(
-                                            (post) {
-                                              final postDate = DateTime(
-                                                post.createdAt.year,
-                                                post.createdAt.month,
-                                                post.createdAt.day,
-                                              );
-                                              final mealDate = DateTime(
-                                                meal.date.year,
-                                                meal.date.month,
-                                                meal.date.day,
-                                              );
-                                              return postDate.isAtSameMomentAs(mealDate);
-                                            },
-                                            orElse: () => posts.first,
-                                          ),
-                                        );
-                                        
-                                        if (mounted && posts.isNotEmpty) {
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (context) => PostDetailScreen(
-                                                post: matchingPost,
-                                              ),
-                                            ),
-                                          );
-                                        }
-                                      }
-                                    },
-                                    child: _MealCard(
-                                      title: meal.mealTitle,
-                                      imageUrl: meal.imageUrl,
-                                    ),
-                                  );
-                                },
-                              ),
-                            ],
-                          ),
-                        );
-                      }).toList(),
+                    return _buildListContent(
+                      theme,
+                      snapshot.connectionState,
+                      logs,
+                      groupedLogs,
                     );
                   },
                 ),

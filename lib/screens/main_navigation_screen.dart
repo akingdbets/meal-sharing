@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../services/auth_service.dart';
+import '../services/notification_service.dart';
 import 'home_screen.dart';
 import 'fridge_search_screen.dart';
 import 'community_screen.dart';
@@ -19,6 +21,22 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _selectedIndex = 0;
   DateTime? _lastBackPressed;
+
+  @override
+  void initState() {
+    super.initState();
+    final uid = AuthService().currentUser?.uid;
+    if (uid != null) {
+      NotificationService().saveFcmTokenIfNeeded(uid);
+      NotificationService().startListeningToUserNotifications(uid);
+    }
+  }
+
+  @override
+  void dispose() {
+    NotificationService().stopListeningToUserNotifications();
+    super.dispose();
+  }
 
   List<Widget> get _screens => [
     HomeScreen(initialTabIndex: widget.initialHomeTabIndex),
