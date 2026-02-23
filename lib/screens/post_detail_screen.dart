@@ -8,6 +8,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'dart:io';
 import 'dart:async';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/post_model.dart';
 import '../models/comment_model.dart';
 import '../repositories/post_repository.dart';
@@ -15,6 +18,10 @@ import '../repositories/comment_repository.dart';
 import '../repositories/meal_log_repository.dart';
 import '../services/auth_service.dart';
 import '../services/like_sync_service.dart';
+import '../services/safety_service.dart';
+import '../services/hidden_content_service.dart';
+import '../repositories/user_repository.dart';
+import '../utils/profanity_filter.dart';
 import 'edit_post_screen.dart';
 import 'user_profile_screen.dart';
 
@@ -34,7 +41,10 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   final PostRepository _postRepository = PostRepository();
   final CommentRepository _commentRepository = CommentRepository();
   final AuthService _authService = AuthService();
+  final SafetyService _safetyService = SafetyService();
+  final UserRepository _userRepository = UserRepository();
   final LikeSyncService _likeSyncService = LikeSyncService();
+  final HiddenContentService _hiddenContentService = HiddenContentService();
   final TextEditingController _commentController = TextEditingController();
   final ImagePicker _imagePicker = ImagePicker();
   final FirebaseStorage _storage = FirebaseStorage.instance;
@@ -229,6 +239,36 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     await _launchURL(url);
   }
 
+  /// Share current post
+  Future<void> _sharePost() async {
+    if (_currentPost == null) return;
+    final text = '오늘의 식탁에서 위 음식의 레시피를 확인해보세요!!\n\n[App Store 다운로드]\nhttps://apps.apple.com/app/id000000000\n\n[Google Play 다운로드]\nhttps://play.google.com/store/apps/details?id=com.example.app';
+
+    try {
+      if (_currentPost!.mainImageUrl != null && _currentPost!.mainImageUrl!.isNotEmpty) {
+        // Download image to a temporary file
+        final response = await http.get(Uri.parse(_currentPost!.mainImageUrl!));
+        if (response.statusCode == 200) {
+          final tempDir = await getTemporaryDirectory();
+          final file = File('${tempDir.path}/share_image_${DateTime.now().millisecondsSinceEpoch}.jpg');
+          await file.writeAsBytes(response.bodyBytes);
+          
+          await Share.shareXFiles(
+            [XFile(file.path)],
+            text: text,
+          );
+          return;
+        }
+      }
+    } catch (e) {
+      print('Error sharing post with image: $e');
+      // Fallback to text only
+    }
+
+    // Share text only if no image or error occurred
+    await Share.share(text);
+  }
+
   @override
   void dispose() {
     // 구독 취소하여 메모리 누수 방지
@@ -391,15 +431,40 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       return;
     }
 
-    final content = parentCommentId != null 
+    final content = parentCommentId != null
         ? (replyText ?? '')
         : _commentController.text.trim();
-    
+
     if (content.isEmpty && _commentImageUrl == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('댓글 내용 또는 사진을 입력해주세요')),
       );
       return;
+    }
+
+    // [Safety] Profanity filter - block upload if text contains bad words
+    if (content.isNotEmpty) {
+      final badWord = ProfanityFilter().containsProfanity(content);
+      if (badWord != null) {
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('부적절한 내용'),
+              content: const Text(
+                '입력한 내용에 부적절한 표현이 포함되어 있습니다.\n수정 후 다시 시도해주세요.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('확인'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
     }
 
     setState(() {
@@ -575,6 +640,160 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
+  /// [Safety] Show Report/Block BottomSheet for the post (target = post author)
+  void _showPostMoreBottomSheet(BuildContext context) {
+    final user = _authService.currentUser;
+    if (user == null || _currentPost == null) return;
+    if (user.uid == _currentPost!.userId) return;
+    _showReportBlockBottomSheet(
+      context: context,
+      targetUid: _currentPost!.userId,
+      contentId: _currentPost!.id,
+      type: 'post',
+      onBlocked: () => Navigator.pop(context),
+    );
+  }
+
+  /// 신고 사유 선택 후 확인 시 선택된 사유 문자열 반환, 취소 시 null
+  Future<String?> _showReportReasonDialog(BuildContext context) async {
+    const reasons = [
+      ('spam', '스팸'),
+      ('inappropriate', '부적절한 콘텐츠'),
+      ('hate', '혐오 발언'),
+      ('privacy', '개인정보 유출'),
+      ('other', '기타'),
+    ];
+    return showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  '신고 사유를 선택해주세요',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              ...reasons.map((e) => ListTile(
+                title: Text(e.$2),
+                onTap: () => Navigator.pop(ctx, e.$1),
+              )),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('취소'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// [Safety] Shared BottomSheet for Report and Block options
+  void _showReportBlockBottomSheet({
+    required BuildContext context,
+    required String targetUid,
+    required String contentId,
+    required String type,
+    VoidCallback? onBlocked,
+  }) {
+    final user = _authService.currentUser;
+    if (user == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.flag_outlined),
+              title: const Text('신고하기', style: TextStyle(fontWeight: FontWeight.bold)),
+              onTap: () async {
+                Navigator.pop(context);
+                final reasonKey = await _showReportReasonDialog(context);
+                if (reasonKey == null || !mounted) return;
+                final reasonLabels = {
+                  'spam': '스팸',
+                  'inappropriate': '부적절한 콘텐츠',
+                  'hate': '혐오 발언',
+                  'privacy': '개인정보 유출',
+                  'other': '기타',
+                };
+                final reasonText = reasonLabels[reasonKey] ?? reasonKey;
+                try {
+                  await _safetyService.report(
+                    reporterUid: user.uid,
+                    targetUid: targetUid,
+                    contentId: contentId,
+                    type: type,
+                    reason: reasonText,
+                  );
+                  if (type == 'post') {
+                    await _hiddenContentService.addHiddenPost(contentId);
+                    if (mounted) Navigator.pop(context);
+                  } else {
+                    await _hiddenContentService.addHiddenComment(contentId);
+                  }
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('신고가 접수되었습니다. 해당 콘텐츠가 숨겨졌습니다.')),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('신고 처리 중 오류: $e')),
+                    );
+                  }
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.block),
+              title: const Text('사용자 차단', style: TextStyle(fontWeight: FontWeight.bold)),
+              onTap: () async {
+                Navigator.pop(context);
+                try {
+                  await _safetyService.blockUser(
+                    currentUid: user.uid,
+                    targetUid: targetUid,
+                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('사용자를 차단했습니다')),
+                    );
+                    onBlocked?.call();
+                    await _loadPost();
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('차단 처리 중 오류: $e')),
+                    );
+                  }
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String _formatNumber(int number) {
     return number.toString().replaceAllMapped(
           RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
@@ -699,28 +918,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     );
   }
 
-  String _getUnitForIngredient(String name) {
-    const unitMap = {
-      '대파': '단', '파': '단', '쪽파': '단',
-      '계란': '알', '달걀': '알',
-      '마늘': '쪽',
-      '돼지고기': 'g', '소고기': 'g', '닭고기': 'g',
-      '우유': 'ml', '물': 'ml',
-    };
-    
-    if (unitMap.containsKey(name)) {
-      return unitMap[name]!;
-    }
-    
-    for (final entry in unitMap.entries) {
-      if (name.contains(entry.key) || entry.key.contains(name)) {
-        return entry.value;
-      }
-    }
-    
-    return '개';
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -775,7 +972,38 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }) {
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
-      body: RefreshIndicator(
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: user != null ? _userRepository.streamUser(user.uid) : null,
+        builder: (context, userSnap) {
+          final userData = userSnap.data?.data() as Map<String, dynamic>?;
+          final blockedIds = userSnap.hasData && userData != null
+              ? ((userData['blockedUserIds'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? <String>[])
+              : <String>[];
+          if (blockedIds.contains(_currentPost!.userId)) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.block, size: 64, color: Colors.grey[400]),
+                    const SizedBox(height: 16),
+                    Text(
+                      '차단한 사용자의 게시글입니다',
+                      style: TextStyle(fontSize: 16, color: Colors.grey[700]),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('돌아가기'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+          return RefreshIndicator(
         onRefresh: _handleRefresh,
         child: CustomScrollView(
           key: const PageStorageKey('post_detail_scroll'),
@@ -799,6 +1027,33 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               onPressed: () => Navigator.pop(context),
             ),
             actions: [
+              // More (Report / Block) - show only for non-owners
+              if (!isOwner)
+                IconButton(
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.3),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.more_horiz, color: Colors.white, size: 20),
+                  ),
+                  onPressed: _isLoading ? null : () => _showPostMoreBottomSheet(context),
+                  tooltip: '더보기',
+                ),
+              // Share Button
+              IconButton(
+                icon: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.3),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.share, color: Colors.white, size: 20),
+                ),
+                onPressed: _isLoading ? null : _sharePost,
+                tooltip: '공유하기',
+              ),
               // Scrap Button
               IconButton(
                 icon: Container(
@@ -951,6 +1206,86 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       color: Colors.grey[900],
                     ),
                   ),
+
+                  // 조리시간 · 인분 (있을 때만)
+                  if ((_currentPost!.cookingTime != null && _currentPost!.cookingTime! > 0) ||
+                      _currentPost!.servings > 1) ...[
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 8,
+                      children: [
+                        if (_currentPost!.cookingTime != null && _currentPost!.cookingTime! > 0)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade50,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: Colors.orange.shade200,
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.schedule,
+                                  size: 18,
+                                  color: Colors.orange.shade700,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '${_currentPost!.cookingTime}분',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.orange.shade800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        if (_currentPost!.servings > 1)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.teal.shade50,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: Colors.teal.shade200,
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.restaurant,
+                                  size: 18,
+                                  color: Colors.teal.shade700,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '${_currentPost!.servings}인분',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.teal.shade800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
                   
                   // Tags
                   if (_currentPost!.tags.isNotEmpty) ...[
@@ -1115,9 +1450,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                         children: _currentPost!.ingredients.asMap().entries.map((entry) {
                           final index = entry.key;
                           final ingredient = entry.value;
-                          final unit = ingredient.unit ?? _getUnitForIngredient(ingredient.name);
-                          final quantity = ingredient.quantity ?? '';
-                          
+                          final amountText = ingredient.displayAmount;
                           return Column(
                             children: [
                               Padding(
@@ -1139,30 +1472,16 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                       ),
                                     ),
                                     const SizedBox(width: 12),
-                                    // 수량
-                                    if (quantity.isNotEmpty) ...[
+                                    // 수량/단위 (자유 텍스트)
+                                    if (amountText.isNotEmpty)
                                       Text(
-                                        quantity,
+                                        amountText,
                                         style: TextStyle(
                                           fontSize: 14,
                                           color: Colors.grey[700],
                                           fontWeight: FontWeight.w500,
                                         ),
                                       ),
-                                      const SizedBox(width: 4),
-                                    ],
-                                    // 단위
-                                    SizedBox(
-                                      width: 40,
-                                      child: Text(
-                                        unit,
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: Colors.grey[700],
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ),
                                     const SizedBox(width: 8),
                                     // 쿠팡 검색 버튼
                                     IconButton(
@@ -1441,12 +1760,23 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Comments List
-                  StreamBuilder<List<CommentModel>>(
-                    stream: _currentPost != null 
-                        ? _commentRepository.streamComments(_currentPost!.id)
-                        : Stream.value(<CommentModel>[]),
-                    builder: (context, snapshot) {
+                  // Comments List (filtered by blocked users)
+                  StreamBuilder<DocumentSnapshot>(
+                    stream: user != null ? _userRepository.streamUser(user.uid) : null,
+                    builder: (context, userSnap) {
+                      final userData = userSnap.data?.data() as Map<String, dynamic>?;
+                      final blockedIds = userSnap.hasData && userData != null
+                          ? ((userData['blockedUserIds'] as List<dynamic>?)
+                                  ?.map((e) => e.toString())
+                                  .toList() ??
+                              <String>[])
+                          : <String>[];
+
+                      return StreamBuilder<List<CommentModel>>(
+                        stream: _currentPost != null
+                            ? _commentRepository.streamComments(_currentPost!.id)
+                            : Stream.value(<CommentModel>[]),
+                        builder: (context, snapshot) {
                       // 게시물 데이터가 없으면 빈 댓글 메시지 표시
                       if (_currentPost == null) {
                         return Center(
@@ -1501,34 +1831,44 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                         );
                       }
 
-                      // 2. 데이터 처리 (hasData가 true이거나 connectionState가 active일 때)
-                      // 로딩 중이어도 데이터가 있으면 표시, 없으면 빈 메시지 표시
-                      final comments = snapshot.hasData ? snapshot.data! : <CommentModel>[];
+                          // 2. 데이터 처리
+                          final commentsRaw = snapshot.hasData ? snapshot.data! : <CommentModel>[];
+                          // [Safety] Filter out comments from blocked users
+                          final commentsBlocked = blockedIds.isEmpty
+                              ? commentsRaw
+                              : commentsRaw.where((c) => !blockedIds.contains(c.userId)).toList();
 
-                      // 3. 데이터 없음 체크 (로딩 중이어도 빈 메시지 표시)
-                      if (comments.isEmpty) {
-                        return Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(32),
-                            child: Text(
-                              '아직 작성된 댓글이 없습니다.',
-                              style: TextStyle(
-                                color: Colors.grey[500],
-                                fontSize: 14,
-                              ),
-                            ),
-                          ),
-                        );
-                      }
+                          return ListenableBuilder(
+                            listenable: _hiddenContentService,
+                            builder: (context, _) {
+                              // [Report] Filter out comments hidden by user (reported)
+                              final comments = commentsBlocked
+                                  .where((c) => !_hiddenContentService.isCommentHidden(c.id))
+                                  .toList();
 
-                      // 5. 데이터 표시
+                              // 3. 데이터 없음 체크
+                              if (comments.isEmpty) {
+                                return Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(32),
+                                    child: Text(
+                                      '아직 작성된 댓글이 없습니다.',
+                                      style: TextStyle(
+                                        color: Colors.grey[500],
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }
 
-                      return Column(
-                        children: comments.map((comment) {
+                              return Column(
+                                children: comments.map((comment) {
                           return _CommentWidget(
+                            key: ValueKey(comment.id),
                             comment: comment,
                             currentUserId: user?.uid,
-                            onDelete: () => _deleteComment(comment.id),
+                            onDeleteComment: _deleteComment,
                             onSubmitReply: (replyText, parentCommentId) async {
                               if (replyText.trim().isNotEmpty) {
                                 await _submitComment(parentCommentId, replyText: replyText);
@@ -1537,8 +1877,21 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                             commentRepository: _commentRepository,
                             postId: _currentPost!.id,
                             onLoadPost: _loadPost,
+                            onShowReportBlock: (targetUid, contentId) {
+                              _showReportBlockBottomSheet(
+                                context: context,
+                                targetUid: targetUid,
+                                contentId: contentId,
+                                type: 'comment',
+                                onBlocked: () => _loadPost(),
+                              );
+                            },
                           );
                         }).toList(),
+                              );
+                            },
+                          );
+                        },
                       );
                     },
                   ),
@@ -1564,6 +1917,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           ),
         ],
         ),
+      );
+        },
       ),
     );
   }
@@ -1572,20 +1927,23 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 class _CommentWidget extends StatefulWidget {
   final CommentModel comment;
   final String? currentUserId;
-  final VoidCallback onDelete;
+  final void Function(String commentId) onDeleteComment;
   final Function(String, String?) onSubmitReply; // (replyText, parentCommentId)
   final CommentRepository commentRepository;
   final String postId;
   final VoidCallback onLoadPost;
+  final void Function(String targetUid, String contentId)? onShowReportBlock;
 
   const _CommentWidget({
+    super.key,
     required this.comment,
     required this.currentUserId,
-    required this.onDelete,
+    required this.onDeleteComment,
     required this.onSubmitReply,
     required this.commentRepository,
     required this.postId,
     required this.onLoadPost,
+    this.onShowReportBlock,
   });
 
   @override
@@ -1800,7 +2158,8 @@ class _CommentWidgetState extends State<_CommentWidget> {
                     Row(
                       children: [
                         // Author name (Clickable)
-                        InkWell(
+                        Expanded(
+                          child: InkWell(
                           onTap: () {
                             Navigator.push(
                               context,
@@ -1825,6 +2184,7 @@ class _CommentWidgetState extends State<_CommentWidget> {
                             ),
                           ),
                         ),
+                      ),
                         const SizedBox(width: 6),
                         Text(
                           _formatTimestamp(widget.comment.createdAt),
@@ -1833,6 +2193,25 @@ class _CommentWidgetState extends State<_CommentWidget> {
                             color: Colors.grey[500],
                           ),
                         ),
+                        // More (Report/Block) - show for non-owners
+                        if (widget.onShowReportBlock != null &&
+                            widget.currentUserId != null &&
+                            widget.currentUserId != widget.comment.userId)
+                          IconButton(
+                            icon: Icon(
+                              Icons.more_horiz,
+                              size: 18,
+                              color: Colors.grey[600],
+                            ),
+                            onPressed: () {
+                              widget.onShowReportBlock!(
+                                widget.comment.userId,
+                                widget.comment.id,
+                              );
+                            },
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
                       ],
                     ),
                     const SizedBox(height: 4),
@@ -1951,12 +2330,12 @@ class _CommentWidgetState extends State<_CommentWidget> {
                       ),
                     ),
                   const Spacer(),
-                  // Delete Button (if owner) - moved to bottom actions
+                  // Delete Button (if owner)
                   if (isOwner)
                     IconButton(
                       icon: const Icon(Icons.delete_outline, size: 18),
                       color: Colors.red[300],
-                      onPressed: widget.onDelete,
+                      onPressed: () => widget.onDeleteComment(widget.comment.id),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
                     ),
@@ -2100,6 +2479,7 @@ class _CommentWidgetState extends State<_CommentWidget> {
                     children: replies.map((reply) {
                       final isReplyOwner = widget.currentUserId == reply.userId;
                       return Container(
+                        key: ValueKey(reply.id),
                         margin: const EdgeInsets.only(bottom: 8),
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -2156,7 +2536,7 @@ class _CommentWidgetState extends State<_CommentWidget> {
                                         IconButton(
                                           icon: const Icon(Icons.delete_outline, size: 14),
                                           color: Colors.red[300],
-                                          onPressed: () => widget.onDelete(),
+                                          onPressed: () => widget.onDeleteComment(reply.id),
                                           padding: EdgeInsets.zero,
                                           constraints: const BoxConstraints(),
                                         ),

@@ -1,3 +1,5 @@
+import 'ingredient_loader.dart';
+
 /// Mock AI Service for ingredient extraction and delivery price lookup
 /// This is a placeholder for actual AI integration
 class MockAIService {
@@ -5,403 +7,77 @@ class MockAIService {
   factory MockAIService() => _instance;
   MockAIService._internal();
 
-  // Comprehensive ingredient database with units (Map<ingredient_name, unit>)
-  final Map<String, String> _ingredientDatabase = {
-    // 육류 (단위: g)
-    '삼겹살': 'g',
-    '목살': 'g',
-    '항정살': 'g',
-    '갈매기살': 'g',
-    '앞다리살': 'g',
-    '뒷다리살': 'g',
-    '대패삼겹살': 'g',
-    '등갈비': 'g',
-    '갈비': 'g',
-    '갈비살': 'g',
-    '등심': 'g',
-    '안심': 'g',
-    '채끝': 'g',
-    '채끝살': 'g',
-    '차돌박이': 'g',
-    '양지': 'g',
-    '사태': 'g',
-    '소갈비살': 'g',
-    '살치살': 'g',
-    '우삼겹': 'g',
-    '닭' : '마리',
-    '닭가슴살': 'g',
-    '닭다리': 'g',
-    '닭날개': 'g',
-    '닭봉': 'g',
-    '닭안심': 'g',
-    '볶음탕용 닭': 'g',
-    '다짐육': 'g',
-    '오리고기': 'g',
-    '양고기': 'g',
-    
-    // 편의점 & 가공식품 - 라면류
-    '신라면': '개',
-    '진라면': '개',
-    '불닭볶음면': '개',
-    '불닭': '개', // 별칭
-    '짜파게티': '개',
-    '너구리': '개',
-    '안성탕면': '개',
-    '공화춘': '컵',
-    '틈새라면': '개',
-    '컵누들': '컵',
-    '육개장사발면': '컵',
-    '참깨라면': '개',
-    '비빔면': '개',
-    
-    // 편의점 & 가공식품 - 즉석밥/면
-    '햇반': '개',
-    '우동사리': '개',
-    '라면사리': '개',
-    '떡국떡': '봉',
-    '떡볶이떡': '봉',
-    
-    // 편의점 & 가공식품 - 토핑/반찬
-    '삼각김밥': '개',
-    '스트링치즈': '개',
-    '비엔나': '개',
-    '후랑크소세지': '개',
-    '핫바': '개',
-    '감동란': '알',
-    '훈제란': '알',
-    '맛살': '봉',
-    '크래미': '봉',
-    '리챔': '캔',
-    
-    // 편의점 & 가공식품 - 냉동식품
-    '만두': '봉',
-    '김말이': '봉',
-    '치킨너겟': '봉',
-    '용가리': '봉',
-    '핫도그': '개',
-    '피자': '개',
-    
-    // 편의점 & 가공식품 - 음료(조합용)
-    '쿨피스': '개',
-    '밀키스': '개',
-    '사이다': '개',
-    '콜라': '개',
-    '갈아만든배': '개',
-    
-    // 채소/과일 - 단위: 개
-    '양파': '개',
-    '당근': '개',
-    '감자': '개',
-    '고구마': '개',
-    '오이': '개',
-    '호박': '개',
-    '애호박': '개',
-    '파프리카': '개',
-    '피망': '개',
-    '토마토': '개',
-    '방울토마토': '개',
-    '아보카도': '개',
-    '고추': '개',
-    '청양고추': '개',
-    '홍고추': '개',
-    '꽈리고추': '개',
-    '브로콜리': '개',
-    '옥수수': '개',
-    
-    // 과일류 - 단위: 개
-    '사과': '개',
-    '배': '개',
-    '바나나': '개',
-    '귤': '개',
-    '포도': '개',
-    '샤인머스캣': '개',
-    '딸기': '개',
-    '참외': '개',
-    '멜론': '개',
-    
-    // 채소 - 단위: 단
-    '대파': '단',
-    '파': '단',
-    '쪽파': '단',
-    '부추': '단',
-    '시금치': '단',
-    '미나리': '단',
-    '쑥갓': '단',
-    
-    // 채소 - 단위: 통
-    '배추': '통',
-    '양배추': '통',
-    '무': '통',
-    
-    // 채소 - 단위: 쪽
-    '마늘': '쪽',
-    '다진마늘': 'g',
-    
-    // 필수 채소/곡류
-    '현미': 'g',
-    '잡곡': 'g',
-    
-    // 채소 - 단위: 알
-    '밤': '알',
-    '대추': '알',
-    
-    // 버섯
-    '표고버섯': '송이',
-    '송이버섯': '송이',
-    '팽이버섯': '봉',
-    '느타리버섯': '봉',
-    '새송이버섯': '봉',
-    '버섯': '개',
-    '양송이버섯': '개',
-    
-    // 수산물
-    '고등어': '마리',
-    '갈치': '마리',
-    '오징어': '마리',
-    '낙지': '마리',
-    '쭈꾸미': '마리',
-    '새우': 'g',
-    '전복': '개',
-    '꽃게': '마리',
-    '조개': 'g',
-    '홍합': 'g',
-    '굴': 'g',
-    '바지락': 'g',
-    '멸치': 'g',
-    '연어': 'g',
-    '참치': 'g',
-    '생선': '마리',
-    
-    // 가공/유제품 (기본)
-    '두부': '모',
-    '순두부': '봉',
-    '계란': '알',
-    '달걀': '알',
-    '메추리알': '알',
-    '우유': 'ml',
-    '생크림': 'ml',
-    '치즈': '장',
-    '크림치즈': 'g',
-    '모짜렐라치즈': 'g',
-    '참치캔': '캔',
-    '햄': 'g',
-    '베이컨': 'g',
-    '소세지': '개',
-    '어묵': 'g',
-    '스팸': '캔',
-    
-    // 양념/소스
-    '고추장': '큰술',
-    '된장': '큰술',
-    '간장': 'ml',
-    '진간장': 'ml',
-    '국간장': 'ml',
-    '소금': '작은술',
-    '설탕': '큰술',
-    '고춧가루': '큰술',
-    '식초': 'ml',
-    '맛술': 'ml',
-    '미림': 'ml',
-    '참기름': 'ml',
-    '들기름': 'ml',
-    '식용유': 'ml',
-    '올리브유': 'ml',
-    '액젓': 'ml',
-    '멸치액젓': 'ml',
-    '까나리액젓': 'ml',
-    '올리고당': 'ml',
-    '물엿': 'ml',
-    '매실액': 'ml',
-    '고추기름': 'ml',
-    '후추': '작은술',
-    '깨': '큰술',
-    '생강': 'g',
-    '다시마': 'g',
-    
-    // 양념/소스 - 추가 소스
-    '불닭소스': 'ml',
-    '굴소스': 'ml',
-    '돈까스소스': 'ml',
-    
-    // 곡물/면류
-    '쌀': 'g',
-    '밥': '공기',
-    '국수': 'g',
-    '파스타': 'g',
-    '스파게티': 'g',
-    '우동': 'g',
-    '소바': 'g',
-    '당면': 'g',
-    '라면': '개',
-    
-    // 기타
-    '물': 'ml',
-    '육수': 'ml',
-    '김': '장',
-    '미역': 'g',
-    '콩나물': 'g',
-    '숙주나물': 'g',
-    '숙주': 'g',
-    '상추': '장',
-    '깻잎': '장',
-    '치커리': '장',
-    '적상추': '장',
-    '로메인': '장',
-    '아스파라거스': '개',
-    '샐러리': '개',
-    '완두콩': 'g',
-    '강낭콩': 'g',
-    '병아리콩': 'g',
-    '콩': 'g',
-    '버터': 'g',
-    '마요네즈': 'g',
-    '케첩': 'g',
-    '머스타드': 'g',
-    '레몬': '개',
-    '라임': '개',
-    '고수': 'g',
-    '바질': 'g',
-    '로즈마리': 'g',
-    '타임': 'g',
-    '빵': '개',
-    '식빵': '개',
-    '밀떡': '봉',
-    '쌀떡': '봉',
-    '떡국떡': '봉',
-  };
-
   // Delivery menu prices (Map of menu name to average price per serving)
   final Map<String, int> _deliveryPrices = {
-    '김치찌개': 12000,
-    '된장찌개': 11000,
-    '부대찌개': 13000,
-    '순두부찌개': 10000,
-    '해물파전': 15000,
-    '김치전': 12000,
-    '치킨': 20000,
-    '양념치킨': 21000,
-    '후라이드치킨': 19000,
-    '파스타': 16000,
-    '크림파스타': 17000,
-    '토마토파스타': 15000,
-    '볶음밥': 12000,
-    '김밥': 4000,
-    '떡볶이': 5000,
-    '라면': 6000,
-    '짜장면': 6000,
-    '짬뽕': 8000,
-    '탕수육': 15000,
-    '짜장밥': 7000,
-    '비빔밥': 10000,
-    '돈까스': 12000,
-    '카레': 9000,
-    '오므라이스': 11000,
-    '제육볶음': 13000,
-    '불고기': 15000,
-    '삼겹살': 18000,
-    '갈비탕': 12000,
-    '설렁탕': 11000,
-    '삼계탕': 16000,
-    '닭볶음탕': 18000,
-    '감자탕': 14000,
-    '마라탕': 15000,
-    '훠궈': 20000,
-    '샤브샤브': 18000,
-    '초밥': 25000,
-    '회': 30000,
-    '우동': 8000,
-    '라멘': 10000,
-    '돈부리': 12000,
-    '카츠동': 13000,
-    '규동': 11000,
-    '볶음우동': 9000,
-    '잡채': 10000,
-    '떡국': 7000,
-    '만두': 8000,
-    '수제비': 8000,
-    '칼국수': 9000,
-    '냉면': 10000,
-    '물냉면': 9000,
-    '비빔냉면': 10000,
-    '냉삼': 12000,
-    '족발': 25000,
-    '보쌈': 20000,
-    '막국수': 9000,
-    '비빔국수': 8000,
-    '콩국수': 7000,
-    '수육': 18000,
-    '곱창': 15000,
-    '막창': 16000,
-    '대창': 17000,
-    '양꼬치': 20000,
-    '닭발': 12000,
-    '닭갈비': 13000,
-    '닭강정': 14000,
-    '순대': 6000,
-    '어묵': 5000,
+    // --- 한식 / 식사류 ---
+    '김치찌개': 12000, '된장찌개': 11000, '차돌된장찌개': 12500, '부대찌개': 13000,
+    '순두부찌개': 10000, '청국장': 10500, '육개장': 11000, '뼈해장국': 11000,
+    '감자탕': 15000, '찜닭': 14000, '닭볶음탕': 14000, '제육볶음': 13000,
+    '불고기': 15000, '뚝배기불고기': 11500, '오징어볶음': 14000, '낙지볶음': 16000,
+    '비빔밥': 10000, '돌솥비빔밥': 11000, '육회비빔밥': 13500, '설렁탕': 11000,
+    '곰탕': 12000, '갈비탕': 15000, '도가니탕': 18000, '추어탕': 12000,
+    '삼계탕': 17000, '고등어구이': 13000, '삼치구이': 14000, '보리굴비': 18000,
+    '간장게장': 25000, '양념게장': 23000, '수육백반': 13000, '국밥': 9500,
+    '돼지국밥': 10000, '순대국밥': 10000, '소머리국밥': 12000, '콩나물국밥': 8500,
+
+    // --- 치킨 / 피자 / 양식 ---
+    '치킨': 20000, '양념치킨': 21000, '후라이드치킨': 19000, '간장치킨': 21000,
+    '순살치킨': 20000, '치즈시즈닝치킨': 22000, '닭강정': 15000, '구운치킨': 20000,
+    '파닭': 22000, '피자': 22000, '콤비네이션피자': 21000, '불고기피자': 23000,
+    '페퍼로니피자': 20000, '포테이토피자': 23000, '고구마피자': 23000, '쉬림프피자': 26000,
+    '치즈피자': 18000, '시카고피자': 25000, '파스타': 15000, '크림파스타': 16000,
+    '토마토파스타': 14000, '로제파스타': 16000, '알리오올리오': 14000, '봉골레파스타': 16000,
+    '까르보나라': 15500, '라스베가스스테이크': 28000, '함박스테이크': 14000, '돈까스': 12000,
+    '치즈돈까스': 14000, '고구마돈까스': 14000, '생선까스': 13000, '리조또': 15000,
+    '필라프': 13000, '오므라이스': 11000, '카레': 10000, '새우카레': 12000,
+
+    // --- 일식 / 중식 ---
+    '짜장면': 7000, '간짜장': 8500, '짬뽕': 9000, '차돌짬뽕': 12000,
+    '볶음밥': 9000, '잡채밥': 10000, '탕수육': 18000, '꿔바로우': 20000,
+    '양장피': 30000, '팔보채': 35000, '마파두부': 15000, '중화비빔밥': 10000,
+    '초밥': 18000, '모둠초밥': 20000, '연어초밥': 22000, '광어초밥': 22000,
+    '회': 35000, '광어회': 35000, '우럭회': 35000, '연어회': 30000,
+    '참치회': 50000, '물회': 16000, '우동': 8500, '튀김우동': 10000,
+    '라멘': 10000, '돈코츠라멘': 11000, '소유라멘': 10000, '미소라멘': 10500,
+    '가츠동': 11000, '규동': 11000, '에비동': 12000, '사케동': 15000,
+    '텐동': 14000, '모밀': 9000, '판모밀': 10000, '냉소바': 10000,
+
+    // --- 야식 / 기타 ---
+    '족발': 35000, '보쌈': 33000, '불족발': 37000, '냉채족발': 37000,
+    '막국수': 9000, '곱창': 16000, '야채곱창': 13000, '소곱창': 22000,
+    '막창': 17000, '대창': 18000, '양꼬치': 15000, '닭발': 17000,
+    '무뼈닭발': 18000, '오돌뼈': 16000, '껍데기': 12000, '아귀찜': 35000,
+    '해물찜': 40000, '마라탕': 12000, '마라상궈': 18000, '훠궈': 25000,
+    '샤브샤브': 18000, '월남쌈': 22000, '쌀국수': 11000, '팟타이': 13000,
+    '나시고랭': 12000, '분짜': 15000, '타코': 12000, '부리또': 11000,
+
+    // --- 분식 / 간편식 ---
+    '떡볶이': 6000, '로제떡볶이': 11000, '마라떡볶이': 12000, '국물떡볶이': 7000,
+    '튀김': 7000, '모둠튀김': 8000, '순대': 5500, '어묵': 5000,
+    '김밥': 4500, '참치김밥': 5500, '치즈김밥': 5000, '돈까스김밥': 6000,
+    '라면': 5500, '떡라면': 6500, '만두라면': 6500, '칼국수': 9000,
+    '수제비': 9000, '잔치국수': 7500, '비빔국수': 8500, '쫄면': 8500,
+    '냉면': 10000, '물냉면': 10000, '비빔냉면': 10500, '만두': 6500,
+    '군만두': 6500, '찐만두': 6500, '햄버거': 8000, '싸이버거세트': 8500,
+    '불고기버거세트': 8000, '치즈버거세트': 9000, '수제버거': 12000,
+
+    // --- 디저트 / 음료 ---
+    '아메리카노': 4500, '카페라떼': 5000, '바닐라라떼': 5500, '콜드브루': 5500,
+    '에이드': 6000, '스무디': 6500, '밀크티': 6000, '빙수': 13000,
+    '팥빙수': 12000, '망고빙수': 15000, '크로플': 5000, '와플': 4500,
+    '조각케이크': 7000, '마카롱': 3000, '샌드위치': 7500, '베이글': 4500,
   };
 
-  /// Get all ingredient names for autocomplete/search
-  /// Returns sorted list in Korean alphabetical order (가나다순)
+  /// Get all ingredient names for autocomplete/search (from IngredientLoader cache).
+  /// Returns list in Korean alphabetical order (가나다순).
   List<String> getAllIngredients() {
-    final ingredients = _ingredientDatabase.keys.toList();
-    // Korean alphabetical sort (가나다순)
-    ingredients.sort((a, b) => a.compareTo(b));
-    return ingredients;
+    return IngredientLoader().allIngredients;
   }
 
-  /// Get unit for an ingredient with smart matching
-  /// - First tries exact match
-  /// - Then tries partial match with enhanced logic (e.g., '공화춘 컵라면' -> '공화춘' -> '컵')
-  /// - Returns '개' as default if not found
+  /// Get unit for an ingredient. Uses IngredientLoader list; default unit is '개'.
   String getUnitForIngredient(String name) {
     if (name.isEmpty) return '개';
-    
-    final trimmed = name.trim();
-    final normalized = trimmed.toLowerCase();
-    
-    // Try exact match first
-    if (_ingredientDatabase.containsKey(trimmed)) {
-      return _ingredientDatabase[trimmed]!;
-    }
-    
-    // Try case-insensitive exact match
-    for (final entry in _ingredientDatabase.entries) {
-      if (entry.key.toLowerCase() == normalized) {
-        return entry.value;
-      }
-    }
-    
-    // Enhanced partial match: Try longer keys first for better accuracy
-    // This handles cases like "공화춘 컵라면" -> finds "공화춘"
-    final sortedKeys = _ingredientDatabase.keys.toList()
-      ..sort((a, b) => b.length.compareTo(a.length));
-    
-    for (final key in sortedKeys) {
-      final lowerKey = key.toLowerCase();
-      // Check if the input contains the key (e.g., "공화춘 컵라면" contains "공화춘")
-      // or if the key contains the input (for abbreviations)
-      if (normalized.contains(lowerKey) || lowerKey.contains(normalized)) {
-        return _ingredientDatabase[key]!;
-      }
-    }
-    
-    // Try word-by-word matching for compound names
-    // Split by spaces and try to match each word
-    final words = trimmed.split(RegExp(r'[\s]+'));
-    for (final word in words) {
-      if (word.length >= 2) { // Only check words with 2+ characters
-        final wordLower = word.toLowerCase();
-        for (final key in sortedKeys) {
-          final lowerKey = key.toLowerCase();
-          if (wordLower == lowerKey || wordLower.contains(lowerKey) || lowerKey.contains(wordLower)) {
-            return _ingredientDatabase[key]!;
-          }
-        }
-      }
-    }
-    
-    // Default unit
+    // Unit per ingredient is no longer stored; use default.
     return '개';
   }
 
@@ -457,28 +133,26 @@ class MockAIService {
       }
     }
 
-    // Then check against all ingredients in database (longer names first for better accuracy)
-    final sortedIngredients = _ingredientDatabase.keys.toList()
+    // allIngredients를 글자 길이 내림차순으로 정렬 후 매칭 (긴 이름 먼저 → '대패삼겹살'을 '삼겹살'로 잘못 인식 방지)
+    final allIngredients = IngredientLoader().allIngredients;
+    final sortedByLength = List<String>.from(allIngredients)
       ..sort((a, b) => b.length.compareTo(a.length));
 
-    for (final ingredient in sortedIngredients) {
+    // 매칭된 구간을 제거해 두어, 짧은 재료가 긴 재료 안에서 중복 매칭되지 않도록 함
+    String remainingText = lowerText;
+
+    for (final ingredient in sortedByLength) {
       final lowerIngredient = ingredient.toLowerCase();
-      
-      // Skip if already found via alias
+      if (lowerIngredient.isEmpty) continue;
       if (foundIngredients.contains(ingredient)) continue;
-      
-      // Check if text contains the ingredient name
-      // Use word boundary matching for better accuracy
-      if (lowerText.contains(lowerIngredient)) {
-        // Additional check: if it's a partial match, verify it's not part of another word
-        final regex = RegExp(r'\b' + RegExp.escape(lowerIngredient) + r'\b');
-        if (regex.hasMatch(lowerText) || lowerText.contains(lowerIngredient)) {
-          foundIngredients.add(ingredient);
-        }
+
+      if (remainingText.contains(lowerIngredient)) {
+        foundIngredients.add(ingredient);
+        // 해당 구간을 공백으로 치환해 같은 구간에서 짧은 재료가 다시 매칭되지 않게 함
+        remainingText = remainingText.replaceFirst(lowerIngredient, ' ' * lowerIngredient.length);
       }
     }
 
-    // Remove duplicates and sort
     return foundIngredients.toList()..sort();
   }
 

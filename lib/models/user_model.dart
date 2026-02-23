@@ -12,6 +12,7 @@ class UserModel {
   final int followersCount;
   final int followingCount;
   final String? profileImage; // [추가됨] 프로필 이미지 URL (AuthService 에러 해결용)
+  final List<String> blockedUserIds; // [Safety] 차단한 사용자 UID 목록
 
   UserModel({
     required this.uid,
@@ -23,7 +24,8 @@ class UserModel {
     this.scrappedPostIds = const [],
     this.followersCount = 0,
     this.followingCount = 0,
-    this.profileImage, // [추가됨] 생성자 파라미터
+    this.profileImage,
+    this.blockedUserIds = const [],
   });
 
   /// Convert UserModel to Map for Firestore
@@ -38,7 +40,8 @@ class UserModel {
       'scrappedPostIds': scrappedPostIds,
       'followersCount': followersCount, // [보완] DB 저장 시 누락되지 않도록 추가
       'followingCount': followingCount, // [보완] DB 저장 시 누락되지 않도록 추가
-      'profileImage': profileImage, // [추가됨] DB 저장 시 프로필 이미지 포함
+      'profileImage': profileImage,
+      'blockedUserIds': blockedUserIds,
     };
   }
 
@@ -76,7 +79,12 @@ class UserModel {
           [],
       followersCount: (map['followersCount'] as int?) ?? 0,
       followingCount: (map['followingCount'] as int?) ?? 0,
-      profileImage: map['profileImage'] as String?, // [추가됨] 불러오기 로직
+      profileImage: map['profileImage'] as String?,
+      blockedUserIds:
+          (map['blockedUserIds'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
     );
   }
 

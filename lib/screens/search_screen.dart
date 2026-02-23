@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../repositories/post_repository.dart';
+import '../repositories/user_repository.dart';
 import '../models/post_model.dart';
 import '../widgets/post_card.dart';
 import '../services/auth_service.dart';
@@ -17,8 +19,14 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _searchController = TextEditingController();
   final PostRepository _repository = PostRepository();
+  final UserRepository _userRepository = UserRepository();
   final AuthService _authService = AuthService();
   Timer? _debounceTimer;
+
+  List<String> _getBlockedIds(dynamic userData) {
+    final list = userData?['blockedUserIds'] as List<dynamic>?;
+    return list?.map((e) => e.toString()).toList() ?? [];
+  }
   
   List<PostModel> _searchResults = [];
   List<Map<String, dynamic>> _tagsWithCounts = [];
@@ -33,7 +41,10 @@ class _SearchScreenState extends State<SearchScreen> {
     
     // Auto focus search field
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      FocusScope.of(context).requestFocus(FocusNode());
+      if (!mounted) return;
+      try {
+        FocusScope.of(context).requestFocus(FocusNode());
+      } catch (_) {}
     });
   }
 
@@ -190,11 +201,17 @@ class _SearchScreenState extends State<SearchScreen> {
           style: const TextStyle(fontSize: 16),
         ),
       ),
-      body: _buildBody(theme, query),
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: _authService.currentUser != null ? _userRepository.streamUser(_authService.currentUser!.uid) : null,
+        builder: (context, userSnap) {
+          final blockedIds = userSnap.hasData ? _getBlockedIds(userSnap.data?.data()) : <String>[];
+          return _buildBody(theme, query, blockedIds);
+        },
+      ),
     );
   }
 
-  Widget _buildBody(ThemeData theme, String query) {
+  Widget _buildBody(ThemeData theme, String query, List<String> blockedIds) {
     // Empty state
     if (query.isEmpty) {
       return Center(
@@ -224,7 +241,11 @@ class _SearchScreenState extends State<SearchScreen> {
       );
     }
 
-    if (_searchResults.isEmpty) {
+    final displayResults = blockedIds.isEmpty
+        ? _searchResults
+        : _searchResults.where((p) => !blockedIds.contains(p.userId)).toList();
+
+    if (displayResults.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -249,9 +270,9 @@ class _SearchScreenState extends State<SearchScreen> {
 
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: _searchResults.length,
+      itemCount: displayResults.length,
       itemBuilder: (context, index) {
-        final post = _searchResults[index];
+        final post = displayResults[index];
         return Padding(
           padding: const EdgeInsets.only(bottom: 16),
           child: InkWell(
@@ -276,6 +297,8 @@ class _SearchScreenState extends State<SearchScreen> {
               imageUrl: post.mainImageUrl,
               isLiked: post.likedBy.contains(_authService.currentUser?.uid ?? ''),
               userId: post.userId,
+              cookingTime: post.cookingTime,
+              servings: post.servings,
             ),
           ),
         );

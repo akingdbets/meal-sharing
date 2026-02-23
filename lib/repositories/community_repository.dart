@@ -55,11 +55,14 @@ class CommunityRepository {
     return _firestore
         .collection(_collectionPath)
         .where('userId', isEqualTo: userId)
-        .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((doc) => CommunityPostModel.fromFirestore(doc))
-            .toList())
+        .map((snapshot) {
+          final list = snapshot.docs
+              .map((doc) => CommunityPostModel.fromFirestore(doc))
+              .toList();
+          list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return list;
+        })
         .handleError((e) {
       print('Error streaming user community posts: $e');
       return <CommunityPostModel>[];
@@ -226,7 +229,7 @@ class CommunityRepository {
         });
   }
 
-  /// Create comment (top-level or reply). Increments post commentCount.
+  /// Create comment (top-level or reply). Increments post commentCount. Creates notification for post author (top-level) or parent comment author (reply).
   Future<String> createComment(String postId, CommunityCommentModel comment) async {
     final ref = _commentsRef(postId);
     final data = comment.toJson();
@@ -235,7 +238,62 @@ class CommunityRepository {
     await _firestore.collection(_collectionPath).doc(postId).update({
       'commentCount': FieldValue.increment(1),
     });
+
+    // 알림: 최상위 댓글 → 게시글 작성자, 답글 → 부모 댓글 작성자
+    final postSnap = await _firestore.collection(_collectionPath).doc(postId).get();
+    if (comment.parentCommentId == null && postSnap.exists) {
+      final postAuthorId = postSnap.data()?['userId'] as String?;
+      if (postAuthorId != null && postAuthorId != comment.userId) {
+        final notifRef = _firestore.collection('users').doc(postAuthorId).collection('notifications').doc();
+        await notifRef.set({
+          'type': 'COMMUNITY',
+          'senderId': comment.userId,
+          'postId': postId,
+          'content': comment.content.length > 50 ? '${comment.content.substring(0, 50)}...' : comment.content,
+          'isRead': false,
+          'createdAt': FieldValue.serverTimestamp(),
+          'title': '새 댓글',
+          'body': '${comment.authorName}님이 커뮤니티 글에 댓글을 달았습니다',
+        });
+      }
+    }
+    if (comment.parentCommentId != null) {
+      final parentSnap = await ref.doc(comment.parentCommentId).get();
+      if (parentSnap.exists) {
+        final parentUserId = parentSnap.data()?['userId'] as String?;
+        if (parentUserId != null && parentUserId != comment.userId) {
+          final notifRef = _firestore.collection('users').doc(parentUserId).collection('notifications').doc();
+          await notifRef.set({
+            'type': 'COMMUNITY',
+            'senderId': comment.userId,
+            'postId': postId,
+            'content': comment.content.length > 50 ? '${comment.content.substring(0, 50)}...' : comment.content,
+            'isRead': false,
+            'createdAt': FieldValue.serverTimestamp(),
+            'title': '새 답글',
+            'body': '${comment.authorName}님이 커뮤니티 댓글에 답글을 달았습니다',
+          });
+        }
+      }
+    }
+
     return docRef.id;
+  }
+
+  /// Update a comment's content.
+  Future<void> updateComment(String postId, String commentId, String newContent) async {
+    if (postId.trim().isEmpty || commentId.trim().isEmpty) {
+      throw Exception('댓글을 수정할 수 없습니다.');
+    }
+    final ref = _commentsRef(postId).doc(commentId);
+    final doc = await ref.get();
+    if (!doc.exists) {
+      throw Exception('해당 댓글을 찾을 수 없습니다.');
+    }
+    await ref.update({
+      'content': newContent,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
   /// Delete comment: if has replies → soft delete (isDeleted=true); else hard delete. Decrements post commentCount.

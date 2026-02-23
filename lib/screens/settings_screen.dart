@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_service.dart';
+import '../widgets/notification_setting_tiles.dart';
 import 'login/login_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -17,6 +19,7 @@ class SettingsScreen extends StatelessWidget {
       backgroundColor: const Color(0xFFF9FAFB),
       body: SafeArea(
         child: SingleChildScrollView(
+          key: const PageStorageKey<String>('settings_scroll'),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -173,6 +176,31 @@ class SettingsScreen extends StatelessWidget {
 
               const SizedBox(height: 8),
 
+              // 앱 알림 설정 (토글만 리빌드되어 스크롤 유지)
+              Container(
+                color: Colors.white,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                      child: Text(
+                        '앱 알림 설정',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey[600],
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                    const NotificationSettingTiles(),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
               // App Info Section
               Container(
                 color: Colors.white,
@@ -231,28 +259,31 @@ class SettingsScreen extends StatelessWidget {
   }
 
   void _showLogoutDialog(BuildContext context, AuthService authService) {
+    final scaffoldContext = context;
     showDialog(
       context: context,
-      builder: (BuildContext context) {
+      builder: (BuildContext dialogContext) {
         return AlertDialog(
           title: const Text('로그아웃'),
           content: const Text('로그아웃 하시겠습니까?'),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('취소'),
             ),
             TextButton(
               onPressed: () async {
-                Navigator.of(context).pop();
+                Navigator.of(dialogContext).pop();
                 try {
                   await authService.signOut();
-                  // AuthWrapper will automatically redirect to LoginScreen
+                  if (!scaffoldContext.mounted) return;
+                  Navigator.of(scaffoldContext).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (context) => const LoginScreen()),
+                    (route) => false,
+                  );
                 } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
+                  if (scaffoldContext.mounted) {
+                    ScaffoldMessenger.of(scaffoldContext).showSnackBar(
                       SnackBar(
                         content: Text('로그아웃 중 오류가 발생했습니다: $e'),
                         backgroundColor: Colors.red,
@@ -301,7 +332,7 @@ class SettingsScreen extends StatelessWidget {
               ),
               SizedBox(height: 8),
               Text(
-                '• 프로필 정보\n• 작성한 게시글\n• 식사 로그\n• 커뮤니티 게시글',
+                '• 프로필 정보\n• 작성한 게시글\n• 식사 로그\n• 자유게시판 게시글',
                 style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
               SizedBox(height: 12),
@@ -346,11 +377,18 @@ class SettingsScreen extends StatelessWidget {
 
                 bool didNavigateToLogin = false;
                 try {
-                  await authService.deleteAccount();
-                  await Future.delayed(const Duration(milliseconds: 300));
+                  // 타임아웃 90초: 무한 대기 방지
+                  await authService.deleteAccount().timeout(
+                    const Duration(seconds: 90),
+                    onTimeout: () {
+                      throw TimeoutException('회원 탈퇴 처리 시간이 초과되었습니다.');
+                    },
+                  );
 
                   if (!scaffoldContext.mounted) return;
-                  Navigator.of(scaffoldContext).pop(); // 로딩 다이얼로그 닫기
+                  Navigator.of(scaffoldContext).pop(); // 로딩 다이얼로그 먼저 닫기
+                  if (!scaffoldContext.mounted) return;
+                  await Future.delayed(const Duration(milliseconds: 400));
                   if (!scaffoldContext.mounted) return;
                   Navigator.of(scaffoldContext).pushAndRemoveUntil(
                     MaterialPageRoute(builder: (context) => const LoginScreen()),
@@ -360,6 +398,8 @@ class SettingsScreen extends StatelessWidget {
                 } on FirebaseAuthException catch (e) {
                   if (e.code == 'requires-recent-login') {
                     if (scaffoldContext.mounted) {
+                      Navigator.of(scaffoldContext).pop(); // 로딩 다이얼로그 먼저 닫기
+                      if (!scaffoldContext.mounted) return;
                       ScaffoldMessenger.of(scaffoldContext).showSnackBar(
                         const SnackBar(
                           content: Text('보안을 위해 다시 로그인한 후 탈퇴해주세요.'),
@@ -375,6 +415,7 @@ class SettingsScreen extends StatelessWidget {
                     }
                   } else {
                     if (scaffoldContext.mounted) {
+                      Navigator.of(scaffoldContext).pop();
                       ScaffoldMessenger.of(scaffoldContext).showSnackBar(
                         SnackBar(
                           content: Text('회원 탈퇴 중 오류가 발생했습니다: ${e.message ?? e.code}'),
@@ -384,8 +425,20 @@ class SettingsScreen extends StatelessWidget {
                       );
                     }
                   }
+                } on TimeoutException catch (e) {
+                  if (scaffoldContext.mounted) {
+                    Navigator.of(scaffoldContext).pop();
+                    ScaffoldMessenger.of(scaffoldContext).showSnackBar(
+                      SnackBar(
+                        content: Text(e.message ?? '처리 시간이 초과되었습니다. 다시 시도해 주세요.'),
+                        backgroundColor: Colors.red,
+                        duration: const Duration(seconds: 5),
+                      ),
+                    );
+                  }
                 } catch (e) {
                   if (scaffoldContext.mounted) {
+                    Navigator.of(scaffoldContext).pop();
                     ScaffoldMessenger.of(scaffoldContext).showSnackBar(
                       SnackBar(
                         content: Text('회원 탈퇴 중 오류가 발생했습니다: $e'),
@@ -396,7 +449,9 @@ class SettingsScreen extends StatelessWidget {
                   }
                 } finally {
                   if (scaffoldContext.mounted && !didNavigateToLogin) {
-                    Navigator.of(scaffoldContext).pop();
+                    try {
+                      Navigator.of(scaffoldContext).pop();
+                    } catch (_) {}
                   }
                 }
               },

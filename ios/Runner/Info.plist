@@ -32,7 +32,40 @@
 				<string>com.googleusercontent.apps.719127695243-2tjhare01gr6d4a9e4jo2gqb2470jfa4</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>kakaob785f709e61469f09acd5316978c0511</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>mealsharing</string>
+			</array>
+		</dict>
 	</array>
+	<key>KAKAO_APP_KEY</key>
+	<string>b785f709e61469f09acd5316978c0511</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>kakaokompassauth</string>
+		<string>kakaolink</string>
+		<string>naversearchapp</string>
+		<string>naversearchthirdlogin</string>
+	</array>
+	<key>NidUrlScheme</key>
+	<string>mealsharing</string>
+	<key>NidClientID</key>
+	<string>000ogJevl48K0Dpp17uS</string>
+	<key>NidClientSecret</key>
+	<string>jojQlCFtV1</string>
+	<key>NidAppName</key>
+	<string>오늘의 식탁</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>GIDClientID</key>

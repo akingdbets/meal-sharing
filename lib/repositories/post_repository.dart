@@ -74,23 +74,31 @@ class PostRepository {
   }
 
   /// Stream posts filtered by survival mode
-  Stream<List<PostModel>> streamPostsByMode({required bool isSurvival}) {
-    return _firestore
+  /// [selectedTag] if non-null, filters posts that contain this tag (arrayContains).
+  /// Note: If Firestore throws index error for tags+createdAt, create composite index
+  /// or fallback to in-memory filtering (already supported via sort).
+  Stream<List<PostModel>> streamPostsByMode({
+    required bool isSurvival,
+    String? selectedTag,
+  }) {
+    Query<Map<String, dynamic>> query = _firestore
         .collection(_collectionPath)
-        .where('isSurvival', isEqualTo: isSurvival)
-        .snapshots()
-        .map((snapshot) {
-          final posts = snapshot.docs
-              .map((doc) => PostModel.fromFirestore(doc))
-              .toList();
-          // Sort by createdAt in memory to avoid index requirement
-          posts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-          return posts;
-        })
-        .handleError((error) {
-          print('Error streaming posts by mode: $error');
-          return <PostModel>[];
-        });
+        .where('isSurvival', isEqualTo: isSurvival);
+
+    if (selectedTag != null && selectedTag.trim().isNotEmpty) {
+      query = query.where('tags', arrayContains: selectedTag.trim());
+    }
+
+    return query.snapshots().map((snapshot) {
+      final posts = snapshot.docs
+          .map((doc) => PostModel.fromFirestore(doc))
+          .toList();
+      posts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return posts;
+    }).handleError((error) {
+      print('Error streaming posts by mode: $error');
+      return <PostModel>[];
+    });
   }
 
   /// Create a new post

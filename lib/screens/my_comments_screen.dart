@@ -133,8 +133,8 @@ class _MyCommentsScreenState extends State<MyCommentsScreen> {
       if (post != null) {
         String title = post.title.isNotEmpty
             ? post.title
-            : (post.content.isNotEmpty ? post.content.split('\n').first.trim() : '커뮤니티 글');
-        if (title.isEmpty) title = '커뮤니티 글';
+            : (post.content.isNotEmpty ? post.content.split('\n').first.trim() : '자유게시판 글');
+        if (title.isEmpty) title = '자유게시판 글';
         if (title.length > 30) title = '${title.substring(0, 30)}...';
         _communityPostTitleCache[postId] = title;
         return title;
@@ -295,7 +295,22 @@ class _MyCommentsScreenState extends State<MyCommentsScreen> {
                   list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
                   return list;
                 },
-              ),
+              ).asyncMap((list) async {
+                // 삭제된 게시물에 달린 댓글은 목록에서 제외
+                final filtered = <_MyCommentItem>[];
+                for (final item in list) {
+                  bool postExists = false;
+                  if (item.isCommunity && item.communityEntry != null) {
+                    final post = await _communityRepository.getPostById(item.communityEntry!.postId);
+                    postExists = post != null;
+                  } else if (item.recipeComment != null) {
+                    final post = await _postRepository.getPostById(item.recipeComment!.postId);
+                    postExists = post != null;
+                  }
+                  if (postExists) filtered.add(item);
+                }
+                return filtered;
+              }),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return Center(
@@ -355,7 +370,7 @@ class _MyCommentsScreenState extends State<MyCommentsScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          '게시물·커뮤니티에 댓글을 남겨보세요',
+                          '게시물·자유게시판에 댓글을 남겨보세요',
                           style: TextStyle(
                             fontSize: 14,
                             color: Colors.grey[500],

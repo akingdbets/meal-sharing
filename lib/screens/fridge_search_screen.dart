@@ -4,7 +4,9 @@ import '../widgets/post_card.dart';
 import '../services/mock_ai_service.dart';
 import '../services/auth_service.dart';
 import '../services/like_sync_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../repositories/post_repository.dart';
+import '../repositories/user_repository.dart';
 import '../models/post_model.dart';
 import 'post_detail_screen.dart';
 
@@ -22,7 +24,13 @@ class _FridgeSearchScreenState extends State<FridgeSearchScreen> with AutomaticK
   final AuthService _authService = AuthService();
   final LikeSyncService _likeSyncService = LikeSyncService();
   final PostRepository _postRepository = PostRepository();
+  final UserRepository _userRepository = UserRepository();
   final ScrollController _scrollController = ScrollController();
+
+  List<String> _getBlockedIds(dynamic userData) {
+    final list = userData?['blockedUserIds'] as List<dynamic>?;
+    return list?.map((e) => e.toString()).toList() ?? [];
+  }
   
   // 좋아요 상태 캐시 (postId -> isLiked, likeCount)
   final Map<String, bool> _likeStatusCache = {};
@@ -164,8 +172,11 @@ class _FridgeSearchScreenState extends State<FridgeSearchScreen> with AutomaticK
     // 스크롤 위치 복원 (다음 프레임에서)
     if (scrollOffset > 0 && _scrollController.hasClients) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
         if (_scrollController.hasClients) {
-          _scrollController.jumpTo(scrollOffset);
+          try {
+            _scrollController.jumpTo(scrollOffset);
+          } catch (_) {}
         }
       });
     }
@@ -184,8 +195,11 @@ class _FridgeSearchScreenState extends State<FridgeSearchScreen> with AutomaticK
     // 스크롤 위치 복원 (다음 프레임에서)
     if (scrollOffset > 0 && _scrollController.hasClients) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
         if (_scrollController.hasClients) {
-          _scrollController.jumpTo(scrollOffset);
+          try {
+            _scrollController.jumpTo(scrollOffset);
+          } catch (_) {}
         }
       });
     }
@@ -205,15 +219,22 @@ class _FridgeSearchScreenState extends State<FridgeSearchScreen> with AutomaticK
     super.build(context); // AutomaticKeepAliveClientMixin을 위한 필수 호출
     final theme = Theme.of(context);
 
-    return StreamBuilder<List<PostModel>>(
-      stream: _postRepository.streamAllPosts(),
-      builder: (context, snapshot) {
-        final allPosts = snapshot.data ?? [];
-        final topIngredients = _calculateTopIngredients(allPosts);
-        final displayPosts = _filterPostsInMemory(allPosts, _selectedIngredients);
-        final isLoading = snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData;
+    return StreamBuilder<DocumentSnapshot>(
+      stream: _authService.currentUser != null ? _userRepository.streamUser(_authService.currentUser!.uid) : null,
+      builder: (context, userSnap) {
+        final blockedIds = userSnap.hasData ? _getBlockedIds(userSnap.data?.data()) : <String>[];
+        return StreamBuilder<List<PostModel>>(
+          stream: _postRepository.streamAllPosts(),
+          builder: (context, snapshot) {
+            final allPosts = snapshot.data ?? [];
+            final postsBlocked = blockedIds.isEmpty
+                ? allPosts
+                : allPosts.where((p) => !blockedIds.contains(p.userId)).toList();
+            final topIngredients = _calculateTopIngredients(postsBlocked);
+            final displayPosts = _filterPostsInMemory(postsBlocked, _selectedIngredients);
+            final isLoading = snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData;
 
-        return Scaffold(
+            return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
       body: GestureDetector(
         // 빈 공간 터치 시 키보드 내리기
@@ -278,8 +299,11 @@ class _FridgeSearchScreenState extends State<FridgeSearchScreen> with AutomaticK
                               // 스크롤 위치 복원 (다음 프레임에서)
                               if (scrollOffset > 0 && _scrollController.hasClients) {
                                 WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  if (!mounted) return;
                                   if (_scrollController.hasClients) {
-                                    _scrollController.jumpTo(scrollOffset);
+                                    try {
+                                      _scrollController.jumpTo(scrollOffset);
+                                    } catch (_) {}
                                   }
                                 });
                               }
@@ -351,6 +375,7 @@ class _FridgeSearchScreenState extends State<FridgeSearchScreen> with AutomaticK
                         ],
                       ),
                       child: Autocomplete<String>(
+                        key: const ValueKey('autocomplete_fridge_ingredient'),
                         // 데이터 소스: MockAiService의 전체 재료 리스트
                         optionsBuilder: (textEditingValue) {
                           final query = textEditingValue.text.toLowerCase().trim();
@@ -525,8 +550,11 @@ class _FridgeSearchScreenState extends State<FridgeSearchScreen> with AutomaticK
                               // 스크롤 위치 복원 (다음 프레임에서)
                               if (scrollOffset > 0 && _scrollController.hasClients) {
                                 WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  if (!mounted) return;
                                   if (_scrollController.hasClients) {
-                                    _scrollController.jumpTo(scrollOffset);
+                                    try {
+                                      _scrollController.jumpTo(scrollOffset);
+                                    } catch (_) {}
                                   }
                                 });
                               }
@@ -671,6 +699,8 @@ class _FridgeSearchScreenState extends State<FridgeSearchScreen> with AutomaticK
                                   .where((n) => n.isNotEmpty)
                                   .toList(),
                               userIngredients: List<String>.from(_selectedIngredients),
+                              cookingTime: post.cookingTime,
+                              servings: post.servings,
                             ),
                           ),
                         );
@@ -686,6 +716,8 @@ class _FridgeSearchScreenState extends State<FridgeSearchScreen> with AutomaticK
       ),
         ),
     );
+          },
+        );
       },
     );
   }

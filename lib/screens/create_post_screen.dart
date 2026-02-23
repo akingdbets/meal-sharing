@@ -10,6 +10,7 @@ import '../models/meal_log_model.dart';
 import '../repositories/post_repository.dart';
 import '../services/auth_service.dart';
 import '../services/mock_ai_service.dart';
+import '../utils/profanity_filter.dart';
 import '../repositories/meal_log_repository.dart';
 
 class CreatePostScreen extends StatefulWidget {
@@ -54,7 +55,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   // Step 3: Tags & Value
   final List<String> _ingredients = [];
   final Map<String, TextEditingController> _ingredientControllers = {};
-  final Map<String, String> _selectedUnits = {}; // 액체류 단위 선택 (큰술/작은술)
   final _ingredientController = TextEditingController();
   /// Autocomplete 재료 검색 필드 컨트롤러 참조 (추가 시 검색칸 초기화용)
   TextEditingController? _ingredientFieldController;
@@ -65,27 +65,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   int _deliveryPricePerServing = 0;
   int _calculatedSavedAmount = 0;
   int _totalSaved = 0;
-
-  // 액체류 재료 목록 (큰술/작은술 단위 선택 가능)
-  static const Set<String> _liquidIngredients = {
-    '간장',
-    '진간장',
-    '국간장',
-    '식초',
-    '맛술',
-    '미림',
-    '참기름',
-    '들기름',
-    '액젓',
-    '멸치액젓',
-    '까나리액젓',
-    '올리고당',
-    '물엿',
-    '매실액',
-    '굴소스',
-    '고추기름',
-  };
-
 
   int _currentStep = 0;
   bool _isLoading = false;
@@ -197,51 +176,16 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     setState(() {});
   }
 
-  /// '변경' 탭 시 메뉴 검색 다이얼로그 표시. 선택 시 _deliveryMenuName·배달비 갱신.
+  /// '변경' 탭 시 메뉴 검색 바텀시트 표시. 선택 시 _deliveryMenuName·배달비 갱신.
   Future<void> _showDeliveryMenuSearchDialog() async {
-    String? selected;
-    await showDialog<void>(
+    final selected = await showModalBottomSheet<String?>(
       context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text('메뉴 선택'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: Autocomplete<String>(
-              optionsBuilder: (textEditingValue) {
-                if (textEditingValue.text.isEmpty) {
-                  return Iterable<String>.empty();
-                }
-                return _aiService.getMenuSuggestions(textEditingValue.text);
-              },
-              onSelected: (value) {
-                selected = value;
-                Navigator.of(ctx).pop();
-              },
-              fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
-                return TextField(
-                  controller: textEditingController,
-                  focusNode: focusNode,
-                  decoration: InputDecoration(
-                    hintText: '메뉴 이름 검색 (예: 치킨, 김치찌개)',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    prefixIcon: const Icon(Icons.search),
-                  ),
-                );
-              },
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('취소'),
-            ),
-          ],
-        );
-      },
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _MenuSearchBottomSheet(aiService: _aiService),
     );
     if (selected != null && mounted) {
-      _menuNameController.text = selected!;
+      _menuNameController.text = selected;
       _onMenuNameChanged();
     }
   }
@@ -361,10 +305,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           _ingredients.add(ingredient);
           // Initialize controller for new ingredient
           _ingredientControllers[ingredient] = TextEditingController();
-          // 액체류 재료인 경우 기본 단위를 '큰술'로 설정
-          if (_liquidIngredients.contains(ingredient)) {
-            _selectedUnits[ingredient] = '큰술';
-          }
         }
       }
     });
@@ -405,10 +345,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       setState(() {
         _ingredients.add(exactMatch);
         _ingredientControllers[exactMatch] = TextEditingController();
-        // 액체류 재료인 경우 기본 단위를 '큰술'로 설정
-        if (_liquidIngredients.contains(exactMatch)) {
-          _selectedUnits[exactMatch] = '큰술';
-        }
       });
       _ingredientController.clear();
       _ingredientFieldController?.clear();
@@ -421,7 +357,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       _ingredients.remove(ingredient);
       _ingredientControllers[ingredient]?.dispose();
       _ingredientControllers.remove(ingredient);
-      _selectedUnits.remove(ingredient); // 액체류 단위 선택도 제거
     });
   }
 
@@ -474,14 +409,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           return _youtubeVideoId != null && _youtubeVideoId!.isNotEmpty;
         }
       case 2:
-        // Step 3: 식재료(모두 수량 입력)만 필수. 태그·배달비 방어는 선택
+        // Step 3: 식재료(수량/단위 자유 입력)만 필수
         if (_ingredients.isEmpty) return false;
         for (final ingredient in _ingredients) {
           final controller = _ingredientControllers[ingredient];
-          final quantity = controller?.text.trim() ?? '';
-          if (quantity.isEmpty) return false;
-          final quantityNum = int.tryParse(quantity);
-          if (quantityNum == null || quantityNum < 1) return false;
+          final amount = controller?.text.trim() ?? '';
+          if (amount.isEmpty) return false;
         }
         return true;
       default:
@@ -523,17 +456,10 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       }
       for (final ingredient in _ingredients) {
         final controller = _ingredientControllers[ingredient];
-        final quantity = controller?.text.trim() ?? '';
-        if (quantity.isEmpty) {
+        final amount = controller?.text.trim() ?? '';
+        if (amount.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('"$ingredient"의 수량을 입력해주세요. 모든 재료에 수량이 필요합니다.')),
-          );
-          return;
-        }
-        final quantityNum = int.tryParse(quantity);
-        if (quantityNum == null || quantityNum < 1) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('"$ingredient"의 수량은 1 이상이어야 합니다.')),
+            SnackBar(content: Text('"$ingredient"의 수량/단위를 입력해주세요 (예: 200g, 3스푼).',)),
           );
           return;
         }
@@ -577,17 +503,10 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     }
     for (final ingredient in _ingredients) {
       final controller = _ingredientControllers[ingredient];
-      final quantity = controller?.text.trim() ?? '';
-      if (quantity.isEmpty) {
+      final amount = controller?.text.trim() ?? '';
+      if (amount.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('"$ingredient"의 수량을 입력해주세요.')),
-        );
-        return;
-      }
-      final quantityNum = int.tryParse(quantity);
-      if (quantityNum == null || quantityNum < 1) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('"$ingredient"의 수량은 1 이상이어야 합니다.')),
+          SnackBar(content: Text('"$ingredient"의 수량/단위를 입력해주세요 (예: 200g, 3스푼).')),
         );
         return;
       }
@@ -614,6 +533,41 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         const SnackBar(content: Text('유효한 유튜브 링크를 입력해주세요')),
       );
       return;
+    }
+
+    // [Safety] Profanity filter - check content, recipe steps, tags, menu name, cooking tips
+    final filter = ProfanityFilter();
+    final textsToCheck = [
+      content,
+      ...recipeSteps,
+      ..._selectedTags,
+      _deliveryMenuName ?? '',
+      _menuNameController.text.trim(),
+      _cookingTipsController.text.trim(),
+    ];
+    for (final text in textsToCheck) {
+      if (text.isEmpty) continue;
+      final badWord = filter.containsProfanity(text);
+      if (badWord != null) {
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('부적절한 내용'),
+              content: const Text(
+                '입력한 내용에 부적절한 표현이 포함되어 있습니다.\n수정 후 다시 시도해주세요.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('확인'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
     }
 
     setState(() {
@@ -662,16 +616,11 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
         final ingredients = _ingredients.map((name) {
           final controller = _ingredientControllers[name];
-          final quantity = controller?.text.trim();
-          // 액체류는 선택된 단위 사용, 그 외는 AI 추천 단위 사용
-          final unit = _liquidIngredients.contains(name)
-              ? (_selectedUnits[name] ?? '큰술')
-              : _aiService.getUnitForIngredient(name);
+          final amount = controller?.text.trim();
           return Ingredient(
             name: name,
             coupangLink: '',
-            quantity: quantity?.isNotEmpty == true ? quantity : null,
-            unit: unit,
+            amount: amount?.isNotEmpty == true ? amount : null,
           );
         }).toList();
 
@@ -1214,43 +1163,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                         color: Colors.grey[900],
                       ),
                     ),
-                    IconButton(
-                      icon: Icon(Icons.help_outline, color: Colors.grey[600], size: 22),
-                      onPressed: () {
-                        showDialog(
-                          context: context,
-                          builder: (context) => AlertDialog(
-                            title: const Text(
-                              '조리법 작성 팁',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
-                              ),
-                            ),
-                            content: Text(
-                              '거창한 레시피가 아니어도 돼요!\n다른 분들이 따라 할 수 있게 핵심만 간단히 적어주세요. 📝',
-                              style: TextStyle(
-                                fontSize: 15,
-                                height: 1.6,
-                                color: Colors.grey[800],
-                              ),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text('알겠어요'),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                      tooltip: '조리법 작성 팁',
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 32,
-                        minHeight: 32,
-                      ),
-                    ),
                   ],
                 ),
                 TextButton.icon(
@@ -1349,9 +1261,10 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                   Text(
                     '거창한 레시피가 아니어도 돼요!\n다른 분들이 쉽게 따라 할 수 있게 핵심만 간단히 적어주세요.',
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 12,
                       height: 1.5,
                       color: Colors.orange[900],
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ],
@@ -1454,89 +1367,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                     ),
                   ),
                 ),
-                IconButton(
-                  icon: Icon(Icons.help_outline, color: Colors.grey[600]),
-                  onPressed: () {
-                    showDialog(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: Text(
-                          '유튜브 영상 올리는 법',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18,
-                          ),
-                        ),
-                        content: SingleChildScrollView(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '1. 유튜브 앱에서 올리고 싶은 영상을 켜세요.',
-                                style: TextStyle(fontSize: 15, height: 1.5),
-                              ),
-                              const SizedBox(height: 12),
-                              RichText(
-                                text: TextSpan(
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    height: 1.5,
-                                    color: Colors.grey[900],
-                                  ),
-                                  children: [
-                                    const TextSpan(text: '2. 영상 아래의 '),
-                                    TextSpan(
-                                      text: '\'공유\'',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: theme.colorScheme.primary,
-                                      ),
-                                    ),
-                                    const TextSpan(text: ' 버튼을 누르세요.'),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              RichText(
-                                text: TextSpan(
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    height: 1.5,
-                                    color: Colors.grey[900],
-                                  ),
-                                  children: [
-                                    const TextSpan(text: '3. '),
-                                    TextSpan(
-                                      text: '\'링크 복사\'',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: theme.colorScheme.primary,
-                                      ),
-                                    ),
-                                    const TextSpan(text: ' 버튼을 누르세요.'),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                '4. 여기로 돌아와서 입력창을 꾹 누르고 \'붙여넣기\' 하세요.',
-                                style: TextStyle(fontSize: 15, height: 1.5),
-                              ),
-                            ],
-                          ),
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('알겠어요'),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                  tooltip: '유튜브 링크 복사 방법 보기',
-                ),
               ],
             ),
             // 유튜브 올리는 법 팁 (항시 노출)
@@ -1562,11 +1392,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '1. 유튜브 앱에서 \'공유\' → \'링크 복사\'를 누르세요.\n2. 여기 입력창을 꾹 누르고 \'붙여넣기\' 하세요.',
+                    '1. 유튜브 앱에서 올리고 싶은 영상이나 쇼츠를 열고\n2.(오른쪽 화살표 표시) \'공유\' → \'링크 복사\'를 누르세요.\n3. 여기 입력창을 꾹 누르고 \'붙여넣기\' 하세요.',
                     style: TextStyle(
                       fontSize: 13,
                       height: 1.5,
                       color: Colors.blue[900],
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ],
@@ -1831,8 +1662,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 children: _ingredients.asMap().entries.map((entry) {
                   final index = entry.key;
                   final ingredient = entry.value;
-                  final unit = _aiService.getUnitForIngredient(ingredient);
-                  
                   return Column(
                     children: [
                       Padding(
@@ -1854,22 +1683,18 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                               ),
                             ),
                             const SizedBox(width: 12),
-                            // 수량 입력 필드
-                            SizedBox(
-                              width: 60,
+                            // 수량/단위 자유 입력 (예: 200g, 3스푼, 반 개)
+                            Expanded(
+                              flex: 1,
                               child: TextField(
                                 controller: _ingredientControllers[ingredient],
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.right,
-                                onChanged: (_) {
-                                  // 값이 변경될 때마다 버튼 상태 업데이트
-                                  setState(() {});
-                                },
+                                onChanged: (_) => setState(() {}),
                                 decoration: InputDecoration(
-                                  hintText: '0',
+                                  hintText: '-g/-큰술/-개..',
+                                  hintStyle: TextStyle(fontSize: 12, color: Colors.grey[500]),
                                   isDense: true,
                                   contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
+                                    horizontal: 10,
                                     vertical: 8,
                                   ),
                                   border: OutlineInputBorder(
@@ -1892,41 +1717,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            // 단위 표시 (액체류는 드롭다운, 그 외는 텍스트)
-                            _liquidIngredients.contains(ingredient)
-                                ? DropdownButton<String>(
-                                    value: _selectedUnits[ingredient] ?? '큰술',
-                                    items: const [
-                                      DropdownMenuItem(value: '큰술', child: Text('큰술')),
-                                      DropdownMenuItem(value: '작은술', child: Text('작은술')),
-                                    ],
-                                    onChanged: (String? newValue) {
-                                      if (newValue != null) {
-                                        setState(() {
-                                          _selectedUnits[ingredient] = newValue;
-                                        });
-                                      }
-                                    },
-                                    underline: Container(),
-                                    isDense: true,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.grey[700],
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  )
-                                : SizedBox(
-                                    width: 40,
-                                    child: Text(
-                                      unit,
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.grey[700],
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ),
                             const SizedBox(width: 8),
                             // 삭제 버튼
                             IconButton(
@@ -1958,7 +1748,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
           // Tags Section
           Text(
-            '태그',
+            '해시태그 (선택)',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
@@ -1972,7 +1762,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 child: TextField(
                   controller: _tagController,
                   decoration: InputDecoration(
-                    hintText: '태그를 입력하세요',
+                    hintText: '해시태그를 입력하세요',
                     prefixText: '#',
                     prefixStyle: TextStyle(
                       color: theme.colorScheme.primary,
@@ -2113,11 +1903,11 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                       Expanded(
                         child: Text(
                           _deliveryMenuName != null && _deliveryPricePerServing > 0
-                              ? '이 메뉴는 배달로 시키면 약 ${_formatNumber(_deliveryPricePerServing * _servings)}원인데, 직접 해서 아꼈어요! 🎉'
+                              ? '이 메뉴는 배달로 시키면 약 ${_formatNumber(_deliveryPricePerServing * _servings)}원인데, \n직접 해서 아꼈어요! 🎉'
                               : '메뉴를 선택하면 자동으로 계산됩니다',
                           style: TextStyle(
                             fontSize: 14,
-                            fontWeight: FontWeight.w500,
+                            fontWeight: FontWeight.w600,
                             color: _deliveryMenuName != null && _deliveryPricePerServing > 0
                                 ? theme.colorScheme.primary
                                 : Colors.grey[600],
@@ -2258,6 +2048,162 @@ class _RecipeTypeButton extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 배달 메뉴 검색 바텀시트 (배달 앱 스타일)
+class _MenuSearchBottomSheet extends StatefulWidget {
+  final MockAIService aiService;
+
+  const _MenuSearchBottomSheet({required this.aiService});
+
+  @override
+  State<_MenuSearchBottomSheet> createState() => _MenuSearchBottomSheetState();
+}
+
+class _MenuSearchBottomSheetState extends State<_MenuSearchBottomSheet> {
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+  String _query = '';
+
+  static const List<String> _popularMenus = ['치킨', '피자', '떡볶이', '짜장면', '족발'];
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(() {
+      setState(() => _query = _searchController.text.trim());
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _selectMenu(String menu) {
+    Navigator.pop(context, menu);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final sheetHeight = MediaQuery.of(context).size.height * 0.65;
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        height: sheetHeight,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 드래그 핸들
+          Center(
+            child: Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          // 검색창 (고정)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: TextField(
+              controller: _searchController,
+              focusNode: _focusNode,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: '메뉴 이름 검색 (예: 치킨, 김치찌개)',
+                prefixIcon: Icon(Icons.search, color: Colors.grey[600]),
+                filled: true,
+                fillColor: Colors.grey[100],
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+          // 콘텐츠 영역
+          Expanded(
+            child: _query.isEmpty
+                ? _buildPopularSection(theme)
+                : _buildSearchResults(theme),
+          ),
+        ],
+      ),
+      ),
+    );
+  }
+
+  Widget _buildPopularSection(ThemeData theme) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '🔥 인기 메뉴',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[800],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _popularMenus.map((menu) {
+              return ActionChip(
+                label: Text(menu),
+                onPressed: () => _selectMenu(menu),
+                backgroundColor: theme.colorScheme.primaryContainer.withOpacity(0.5),
+                side: BorderSide.none,
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchResults(ThemeData theme) {
+    final suggestions = widget.aiService.getMenuSuggestions(_query);
+    if (suggestions.isEmpty) {
+      return Center(
+        child: Text(
+          '검색 결과가 없습니다',
+          style: TextStyle(color: Colors.grey[600], fontSize: 14),
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      itemCount: suggestions.length,
+      itemBuilder: (context, index) {
+        final menu = suggestions[index];
+        return ListTile(
+          leading: Icon(Icons.restaurant, color: theme.colorScheme.primary, size: 22),
+          title: Text(menu),
+          onTap: () => _selectMenu(menu),
+        );
+      },
     );
   }
 }

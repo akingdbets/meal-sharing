@@ -3,6 +3,10 @@ import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
+import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../repositories/post_repository.dart';
 import '../services/auth_service.dart';
 import '../services/like_sync_service.dart';
@@ -22,6 +26,8 @@ class PostCard extends StatefulWidget {
   final String userId; // Added userId for profile navigation
   final List<String> postIngredients; // 게시물의 재료 목록
   final List<String> userIngredients; // 사용자가 가진 재료 목록
+  final int? cookingTime; // 조리시간(분)
+  final int? servings; // 인분
 
   const PostCard({
     super.key,
@@ -38,6 +44,8 @@ class PostCard extends StatefulWidget {
     required this.userId, // Added userId parameter
     this.postIngredients = const [], // 게시물의 재료 목록 (기본값: 빈 리스트)
     this.userIngredients = const [], // 사용자가 가진 재료 목록 (기본값: 빈 리스트)
+    this.cookingTime,
+    this.servings,
   });
 
   @override
@@ -207,6 +215,33 @@ class _PostCardState extends State<PostCard> {
         SnackBar(content: Text('오류가 발생했습니다: $e')),
       );
     }
+  }
+
+  Future<void> _sharePost() async {
+    final text = '오늘의 식탁에서 위 음식의 레시피를 확인해보세요!!\n\n[App Store 다운로드]\nhttps://apps.apple.com/app/id000000000\n\n[Google Play 다운로드]\nhttps://play.google.com/store/apps/details?id=com.example.app';
+
+    try {
+      if (widget.imageUrl != null && widget.imageUrl!.isNotEmpty) {
+        // Download image to a temporary file
+        final response = await http.get(Uri.parse(widget.imageUrl!));
+        if (response.statusCode == 200) {
+          final tempDir = await getTemporaryDirectory();
+          final file = File('${tempDir.path}/share_image_${DateTime.now().millisecondsSinceEpoch}.jpg');
+          await file.writeAsBytes(response.bodyBytes);
+
+          await Share.shareXFiles(
+            [XFile(file.path)],
+            text: text,
+          );
+          return;
+        }
+      }
+    } catch (e) {
+      print('Error sharing post with image: $e');
+    }
+
+    // Share text only if no image or error occurred
+    await Share.share(text);
   }
 
   /// 쿠팡 검색 URL 실행
@@ -449,47 +484,69 @@ class _PostCardState extends State<PostCard> {
                         ),
                 ),
               ),
-              // Savings Badge
-              if (widget.savedMoney != null && widget.savedMoney! > 0)
-                Positioned(
-                  top: 12,
-                  right: 12,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary,
+              // Top Right Area (Savings Badge + Share Button)
+              Positioned(
+                top: 12,
+                right: 12,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.savedMoney != null && widget.savedMoney! > 0)
+                      Container(
+                        margin: const EdgeInsets.only(right: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary,
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              '💰',
+                              style: TextStyle(fontSize: 14),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${numberFormat.format(widget.savedMoney ?? 0)}원 절약!',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    InkWell(
+                      onTap: _sharePost,
                       borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.5),
+                          shape: BoxShape.circle,
                         ),
-                      ],
+                        child: const Icon(
+                          Icons.ios_share,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          '💰',
-                          style: TextStyle(fontSize: 14),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '${numberFormat.format(widget.savedMoney ?? 0)}원 절약!',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  ],
                 ),
+              ),
               // Scrap Button
               Positioned(
                 top: 12,
@@ -636,6 +693,85 @@ class _PostCardState extends State<PostCard> {
                     ),
                   ],
                 ),
+                // 조리시간 · 인분 (있을 때만)
+                if ((widget.cookingTime != null && widget.cookingTime! > 0) ||
+                    (widget.servings != null && widget.servings! > 1)) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      if (widget.cookingTime != null && widget.cookingTime! > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Colors.orange.shade200,
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.schedule,
+                                size: 14,
+                                color: Colors.orange.shade700,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${widget.cookingTime}분',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.orange.shade800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (widget.servings != null && widget.servings! > 1)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Colors.teal.shade200,
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.restaurant,
+                                size: 14,
+                                color: Colors.teal.shade700,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${widget.servings}인분',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.teal.shade800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 12),
                 // Tags
                 Wrap(

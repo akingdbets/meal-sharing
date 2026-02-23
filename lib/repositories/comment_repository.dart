@@ -49,26 +49,115 @@ class CommentRepository {
     });
   }
 
-  /// Create a new comment
-  /// Ensures authorId is always saved for querying user's comments
+  /// Create a new comment (Transaction: 댓글 + 게시글 카운트 + 알림 문서를 한 번에 처리)
+  /// 본인 글에 댓글(authorId == currentUserId)인 경우 알림 미생성.
+  /// 알림 경로: users/{authorId}/notifications
   Future<String> createComment(CommentModel comment) async {
     try {
-      // Ensure authorId is set (use userId as fallback if not provided)
       final commentData = comment.toJson();
       if (commentData['authorId'] == null || (commentData['authorId'] as String).isEmpty) {
         commentData['authorId'] = comment.userId;
       }
-      
-      final docRef = await _firestore.collection(_collectionPath).add(commentData);
-      
-      // Update post comment count
-      await _firestore.collection('posts').doc(comment.postId).update({
-        'comments': FieldValue.increment(1),
+
+      final commentRef = _firestore.collection(_collectionPath).doc();
+      final postRef = _firestore.collection('posts').doc(comment.postId);
+
+      final commentId = await _firestore.runTransaction<String>((transaction) async {
+        // 1. 게시글 조회 → 작성자(authorId) 확인
+        final postSnap = await transaction.get(postRef);
+        if (!postSnap.exists) throw Exception('Post not found');
+        final authorId = postSnap.data()?['userId'] as String?;
+        if (authorId == null) throw Exception('Post author not found');
+
+        // 2. 댓글 문서 생성
+        transaction.set(commentRef, commentData);
+
+        // 3. 게시글 댓글 수 증가
+        transaction.update(postRef, {'comments': FieldValue.increment(1)});
+
+        // 4. 최상위 댓글: 게시글 작성자에게 알림
+        if (comment.parentCommentId == null && authorId != comment.userId) {
+          final postData = postSnap.data()!;
+          final postContent = postData['content'] as String? ?? '';
+          final postPreview = postContent.length > 40
+              ? '${postContent.replaceAll('\n', ' ').trim().substring(0, 40)}...'
+              : postContent.replaceAll('\n', ' ').trim();
+          final contentPreview = comment.content.length > 50
+              ? '${comment.content.substring(0, 50)}...'
+              : comment.content;
+          final notifRef = _firestore
+              .collection('users')
+              .doc(authorId)
+              .collection('notifications')
+              .doc();
+          final bodyText = postPreview.isEmpty
+              ? '${comment.authorName}님이 댓글을 달았습니다'
+              : '게시글 \'$postPreview\'에 ${comment.authorName}님이 댓글을 달았습니다';
+          transaction.set(notifRef, {
+            'type': 'COMMENT',
+            'senderId': comment.userId,
+            'postId': comment.postId,
+            'content': contentPreview,
+            'isRead': false,
+            'createdAt': FieldValue.serverTimestamp(),
+            'title': '새 댓글',
+            'body': bodyText,
+          });
+        }
+
+        // 5. 답글: 부모 댓글 작성자에게 알림
+        if (comment.parentCommentId != null) {
+          final parentRef = _firestore.collection(_collectionPath).doc(comment.parentCommentId);
+          final parentSnap = await transaction.get(parentRef);
+          if (parentSnap.exists) {
+            final parentUserId = parentSnap.data()?['userId'] as String?;
+            if (parentUserId != null && parentUserId != comment.userId) {
+              final notifRef = _firestore
+                  .collection('users')
+                  .doc(parentUserId)
+                  .collection('notifications')
+                  .doc();
+              transaction.set(notifRef, {
+                'type': 'COMMENT',
+                'senderId': comment.userId,
+                'postId': comment.postId,
+                'content': comment.content.length > 50 ? '${comment.content.substring(0, 50)}...' : comment.content,
+                'isRead': false,
+                'createdAt': FieldValue.serverTimestamp(),
+                'title': '새 답글',
+                'body': '${comment.authorName}님이 답글을 달았습니다',
+              });
+            }
+          }
+        }
+
+        return commentRef.id;
       });
-      
-      return docRef.id;
+
+      return commentId;
     } catch (e) {
       print('Error creating comment: $e');
+      rethrow;
+    }
+  }
+
+  /// Update a comment's content (only content; imageUrl etc. unchanged)
+  Future<void> updateComment(String commentId, String newContent) async {
+    if (commentId.trim().isEmpty) {
+      throw Exception('댓글 ID가 없어 수정할 수 없습니다.');
+    }
+    try {
+      final docRef = _firestore.collection(_collectionPath).doc(commentId);
+      final doc = await docRef.get();
+      if (!doc.exists) {
+        throw Exception('해당 댓글을 찾을 수 없습니다.');
+      }
+      await docRef.update({
+        'content': newContent,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('Error updating comment: $e');
       rethrow;
     }
   }

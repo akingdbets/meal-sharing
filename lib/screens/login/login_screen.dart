@@ -1,6 +1,9 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
-import '../main_navigation_screen.dart'; // 메인 화면 경로
+import '../../widgets/auth_wrapper.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -11,9 +14,17 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false; // 로딩 상태 관리
+  bool _isTermsAccepted = false; // 이용약관 동의 상태
 
   // 🍎 애플 로그인 핸들러
   void _handleAppleLogin() async {
+    if (!_isTermsAccepted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('서비스 이용약관 및 커뮤니티 가이드라인에 동의해주세요.')),
+      );
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
@@ -23,9 +34,10 @@ class _LoginScreenState extends State<LoginScreen> {
       final userCredential = await AuthService().signInWithApple();
 
       if (userCredential != null && mounted) {
-        // 성공 시 메인 화면으로 이동
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+        // 성공 시 AuthWrapper로 이동 → 온보딩 여부 검사 후 온보딩/메인 화면 분기
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const AuthWrapper()),
+          (route) => false,
         );
       }
     } catch (e) {
@@ -93,53 +105,151 @@ class _LoginScreenState extends State<LoginScreen> {
 
               const SizedBox(height: 48),
 
-              // 로딩 중이면 뱅글뱅글, 아니면 버튼 표시
+              // 로딩 중이면 뱅글뱅글, 아니면 컨텐츠 표시
               if (_isLoading)
                 const CircularProgressIndicator()
               else
                 Column(
                   children: [
-                    // 🍎 Apple Login Button (추가됨)
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton.icon(
-                        onPressed: _handleAppleLogin,
-                        icon: const Icon(
-                          Icons.apple,
-                          size: 24,
-                          color: Colors.white,
+                    // 이용약관 동의 체크박스
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 24),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: _isTermsAccepted ? theme.colorScheme.primary : Colors.grey.shade300,
+                          width: 1,
                         ),
-                        label: const Text(
-                          'Apple로 계속하기',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.black, // 애플은 무조건 검정(혹은 흰색)
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+                      ),
+                      child: InkWell(
+                        onTap: () {
+                          setState(() {
+                            _isTermsAccepted = !_isTermsAccepted;
+                          });
+                        },
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: Checkbox(
+                                value: _isTermsAccepted,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _isTermsAccepted = value ?? false;
+                                  });
+                                },
+                                activeColor: theme.colorScheme.primary,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '[필수] 서비스 이용약관 및 커뮤니티 가이드라인 동의',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.grey[800],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '* 부적절한 게시글은 관리자에 의해 강제 삭제될 수 있습니다.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.red[400],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                    const SizedBox(height: 12),
 
-                    // Kakao Login Button (아직 미구현)
+                    // 🍎 Apple 로그인 (iOS 등에서만 표시, Android에서는 숨김)
+                    if (kIsWeb || !Platform.isAndroid) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton.icon(
+                          onPressed: _handleAppleLogin,
+                          icon: const Icon(
+                            Icons.apple,
+                            size: 24,
+                            color: Colors.white,
+                          ),
+                          label: const Text(
+                            'Apple로 계속하기',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.black,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+
+                    // 카카오 로그인 버튼
                     SizedBox(
                       width: double.infinity,
                       height: 50,
                       child: ElevatedButton(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('카카오 로그인 준비 중입니다.')),
-                          );
-                        },
+                        onPressed: _isLoading
+                            ? null
+                            : () async {
+                                if (!_isTermsAccepted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('서비스 이용약관 및 커뮤니티 가이드라인에 동의해주세요.')),
+                                  );
+                                  return;
+                                }
+                                setState(() => _isLoading = true);
+                                try {
+                                  final userCredential = await AuthService().signInWithKakao();
+                                  if (!mounted) return;
+                                  if (userCredential != null) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('카카오 로그인 성공'),
+                                          backgroundColor: Colors.green,
+                                        ),
+                                    );
+                                    Navigator.of(context).pushAndRemoveUntil(
+                                      MaterialPageRoute(builder: (_) => const AuthWrapper()),
+                                      (route) => false,
+                                    );
+                                  }
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('카카오 로그인 실패: $e'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                } finally {
+                                  if (mounted) setState(() => _isLoading = false);
+                                }
+                              },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFFFEE500),
                           foregroundColor: const Color(0xFF3C1E1E),
@@ -166,16 +276,48 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 12),
 
-                    // Naver Login Button (아직 미구현)
+                    // 네이버 로그인 버튼
                     SizedBox(
                       width: double.infinity,
                       height: 50,
                       child: ElevatedButton(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('네이버 로그인 준비 중입니다.')),
-                          );
-                        },
+                        onPressed: _isLoading
+                            ? null
+                            : () async {
+                                if (!_isTermsAccepted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('서비스 이용약관 및 커뮤니티 가이드라인에 동의해주세요.')),
+                                  );
+                                  return;
+                                }
+                                setState(() => _isLoading = true);
+                                try {
+                                  final userCredential = await AuthService().signInWithNaver();
+                                  if (!mounted) return;
+                                  if (userCredential != null) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('네이버 로그인 성공'),
+                                        backgroundColor: Colors.green,
+                                      ),
+                                    );
+                                    Navigator.of(context).pushAndRemoveUntil(
+                                      MaterialPageRoute(builder: (_) => const AuthWrapper()),
+                                      (route) => false,
+                                    );
+                                  }
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('네이버 로그인 실패: $e'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                } finally {
+                                  if (mounted) setState(() => _isLoading = false);
+                                }
+                              },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF03C75A),
                           foregroundColor: Colors.white,
@@ -225,6 +367,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       height: 50,
                       child: OutlinedButton(
                         onPressed: () async {
+                          if (!_isTermsAccepted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('서비스 이용약관 및 커뮤니티 가이드라인에 동의해주세요.')),
+                            );
+                            return;
+                          }
+
                           // 1. 로딩 시작
                           setState(() {
                             _isLoading = true;
@@ -235,11 +384,12 @@ class _LoginScreenState extends State<LoginScreen> {
                             final result = await authService.signInWithGoogle();
 
                             if (result != null && context.mounted) {
-                              // 3. 성공 시 메인 화면으로 이동
-                              Navigator.of(context).pushReplacement(
+                              // 3. 성공 시 AuthWrapper로 이동 → 온보딩 여부 검사 후 온보딩/메인 화면 분기
+                              Navigator.of(context).pushAndRemoveUntil(
                                 MaterialPageRoute(
-                                  builder: (_) => const MainNavigationScreen(),
+                                  builder: (_) => const AuthWrapper(),
                                 ),
+                                (route) => false,
                               );
                             }
                           } catch (e) {
@@ -274,7 +424,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             _GoogleLogoIcon(size: 20),
                             SizedBox(width: 12),
                             Text(
-                              'Google로 계속하기',
+                              'Google로 시작하기',
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
