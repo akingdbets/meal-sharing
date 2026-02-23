@@ -45,7 +45,7 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>mealsharing</string>
+				<string>mealsharingnaver</string>
 			</array>
 		</dict>
 	</array>
@@ -59,7 +59,7 @@
 		<string>naversearchthirdlogin</string>
 	</array>
 	<key>NidUrlScheme</key>
-	<string>mealsharing</string>
+	<string>mealsharingnaver</string>
 	<key>NidClientID</key>
 	<string>000ogJevl48K0Dpp17uS</string>
 	<key>NidClientSecret</key>
